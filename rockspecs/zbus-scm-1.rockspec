@@ -4,7 +4,7 @@ source = {
   url = 'git://github.com/lipp/zbus.git',
 }
 description = {
-  summary = 'A zeromq based message distribution framework in Lua.',
+  summary = 'A zeromq based message bus in Lua.',
   homepage = 'http://github.com/lipp/zbus',
   license = 'MIT/X11'
 }
