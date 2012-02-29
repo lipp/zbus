@@ -1,5 +1,7 @@
 # About
 
+zbus is a message bus in Lua. Even if the broker (zbusd.lua) and the modules provided are written in Lua, zbus members could be written in any language with support for zeromq (and multi-part messages).
+
 ## Files
 
 zbus consists of several parts: 
@@ -18,6 +20,7 @@ To achieve this, you have to become a zbus.member. zbus members can:
      - register callbacks to handle notifications (publish/_subscribe_)
      - send notificiations (_publish_/subscribe)
      - call methods in another process
+     - a extendable event loop
 
 ## Requirements
 
