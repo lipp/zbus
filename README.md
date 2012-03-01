@@ -234,8 +234,8 @@ zbus members must register routes to subscribe to notifications or to provide se
 - **listen_remove** removes an expression to the specified listen socket
  + params: url,expression
 
-### zbus-registration-messages
-A zbus-registration-messages is a (zeromq) multi-part message with the following layout:
+### zbus-registration-request
+A zbus-registration-request is a (zeromq) multi-part message with the following layout:
 
 <table border="1">               
         <tr>		
@@ -251,7 +251,68 @@ A zbus-registration-messages is a (zeromq) multi-part message with the following
                 <th> ... </th><td> ... </td>	
         </tr>
 </table>
-The method part (first part) is required, all arguments are further parts in the multi-part message.
+The method part (first part) is required, all arguments to registration calls are further parts in the multi-part message.
 
+### zbus-registration-response
+A zbus-registration-response is a (zeromq) message. 
 
-## Members
+**In case of error, it has two parts**:
+<table border="1">               
+        <tr>		
+                <th>result</th><td></td>
+        </tr>
+        <tr>
+                <th>error</th><td>some error message</td>	
+        </tr>
+</table>
+
+**In case of success, it has one part**:
+<table border="1">               
+        <tr>		
+                <th>result</th><td>tcp://127.0.0.1:8765</td>
+        </tr>
+</table>
+
+## Method-calls
+### method-call-request
+The method-call-request message must always be a (zeromq) **two-part message**. The first argument is the method-url to call, the second is an argument string:
+<table border="1">               
+        <tr>		
+                <th>method</th><td>echo</td>
+        </tr>
+        <tr>
+                <th>argument</th><td>[1,111,"hallo"]</td>	
+        </tr>
+</table>
+The format of the argument data can be of any kind (e.g.,ascii, JSON, binary, etc). When using zbus/json.lua as zbus.member configuration, the member:call arguments are serialized to JSON arrays.
+
+### method-call-response
+The method-call-response message may has **one part in case of success**:
+<table border="1">               
+        <tr>		
+                <th>result</th><td>[1,111,"hallo"]</td>
+        </tr>
+</table>
+
+**In case of a handler error, it has two parts**:
+<table border="1">               
+        <tr>		
+                <th>result</th><td></td>
+        </tr>
+        <tr>
+                <th>error</th><td>{error:"something went wrong",code=123}</td>	
+        </tr>
+</table>
+
+**In case of an zbus error, it has three parts**:
+<table border="1">               
+        <tr>		
+                <th>result</th><td></td>
+        </tr>
+        <tr>
+                <th>error</th><td>ERR_AMBIGUOUS</td>	
+        </tr>
+        <tr>
+                <th>error_desc</th><td>method ambiguous: echo</td>	
+        </tr>
+</table>
