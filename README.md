@@ -235,15 +235,32 @@ zbus members must register routes to subscribe to notifications or to provide se
 - **listen_remove** removes an expression to the specified listen socket
  + params: url,expression
 
-### zbus-registration-request
-A zbus-registration-request is a (zeromq) multi-part message with the following layout:
+
+
+## Messages
+
+There are seven kinds of zbus messages:
+
+- **registration-request**, sent from zbus members to the broker
+- **registration-response**, sent from the broker to zbus members
+- **method-call-request**, sent from a member to the broker method-call socket (default "tcp://*:33325")
+- **method-call-request-forward**, sent from the broker to the registered replier socket
+- **method-call-response**, sent from replier to the broker and from the broker to the requestor (the caller)
+- **notification**, sent from a member to the broker notification socket (default "tcp://*:33328")
+- **notification-forward**, sent from the broker to all listen sockets (subscribers)
+
+The format of the message data (argument/result/error/data) **can be of any kind** (e.g.,ascii, JSON, binary, etc)! 
+(When using zbus/json.lua as zbus.member configuration, all stuff is converted to and from JSON.)
+
+### registration-request
+A registration-request is a (zeromq) multi-part message with the following layout:
 
 <table border="1">   
        <tr>
 	<td>Message Part</td><td>Meaning</td><td>Example</td>
        </tr>            
         <tr>		
-                <td>1</td><td>method</td><td>replier_add</td>
+                <td>1</td><td>Method</td><td>replier_add</td>
         </tr>
         <tr>
                 <td>2</td><td>arg 1</td><td>tcp://127.0.0.1:8765</td>	
@@ -257,8 +274,8 @@ A zbus-registration-request is a (zeromq) multi-part message with the following 
 </table>
 The method part (first part) is required, all arguments to registration calls are further parts in the multi-part message.
 
-### zbus-registration-response
-A zbus-registration-response is a (zeromq) message. 
+### registration-response
+A registration-response is a (zeromq) message. 
 
 **In case of error, it has two parts**:
 <table border="1">      
@@ -266,10 +283,10 @@ A zbus-registration-response is a (zeromq) message.
 	<td>Message Part</td><td>Meaning</td><td>Example</td>
        </tr>                     
         <tr>		
-                <td>1</td><td>result</td><td></td>
+                <td>1</td><td>Result</td><td></td>
         </tr>
         <tr>
-                <td>2</td><td>error</td><td>some error message</td>	
+                <td>2</td><td>Error</td><td>some error message</td>	
         </tr>
 </table>
 
@@ -279,22 +296,9 @@ A zbus-registration-response is a (zeromq) message.
 	<td>Message Part</td><td>Meaning</td><td>Example</td>
        </tr>                     
         <tr>		
-                <td>1</td><td>result</td><td>tcp://127.0.0.1:8765</td>
+                <td>1</td><td>Result</td><td>tcp://127.0.0.1:8765</td>
         </tr>
 </table>
-
-## Messages
-
-There are kinds of zbus messages:
-
-- **method-call-request**, sent from a member to the broker method-call socket (default "tcp://*:33325")
-- **method-call-request-forward**, sent from the broker to the registered replier socket
-- **method-call-response**, sent from replier to the broker and from the broker to the requestor (the caller)
-- **notification**, sent from a member to the broker notification socket (default "tcp://*:33328")
-- **notification-forward**, sent from the broker to all listen sockets (subscribers)
-
-The format of the message data (argument/result/error/data) **can be of any kind** (e.g.,ascii, JSON, binary, etc)! 
-(When using zbus/json.lua as zbus.member configuration, all stuff is converted to and from JSON.)
 
 
 ### method-call-request
