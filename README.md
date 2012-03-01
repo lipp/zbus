@@ -29,11 +29,11 @@ zbusd heavily relies on [lua-zmq](https://github.com/Neopallium/lua-zmq) and [lu
 
 ## Other Languages like C,Python,...
 
-Even if the broker (zbusd.lua) and the modules provided are written in Lua, zbus members could be written in *any language* with support for zeromq (and multi-part messages), as [lua-zmq](https://github.com/Neopallium/lua-zmq) does.
+Even if the broker (zbusd.lua) and the modules provided are written in Lua, zbus members could be written in **any language** with support for zeromq (and multi-part messages), as [lua-zmq](https://github.com/Neopallium/lua-zmq) does.
 
 ## Protocol
 
-zbus defines a simple protocol based on zeromq *multi-part messages*.This allows zbusd.lua to effectively recognize (or simply forward):
+zbus defines a simple protocol based on zeromq **multi-part messages**.This allows zbusd.lua to effectively recognize (or simply forward):
 
 -    method-urls
 -    method-arguments
