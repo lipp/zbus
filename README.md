@@ -239,18 +239,19 @@ A zbus-registration-messages is a (zeromq) multi-part message with the following
 
 <table border="1">               
         <tr>		
-                <th>method</th><td></td>
+                <th>method</th><td>replier_add</td>
         </tr>
         <tr>
-                <th>arg 1</th><td></td>	
+                <th>arg 1</th><td>tcp://127.0.0.1:8765</td>	
         </tr>
         <tr>
-                <th>arg 2</th><td></td>	
+                <th>arg 2</th><td>^echo$</td>	
         </tr>
         <tr>
                 <th> ... </th><td> ... </td>	
         </tr>
 </table>
+The method part (first part) is required, all arguments are further parts in the multi-part message.
 
 
 ## Members
