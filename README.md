@@ -50,13 +50,15 @@ zbus is Lua-only, so no build/compile process is involved.
 ## Install
 
 Latest version from github:
-```shell
+```sh
 sudo luarocks install https://github.com/lipp/zbus/raw/master/rockspecs/zbus-scm-1.rockspec
 ```
+
 or from cloned repo directory:
-```shell
+```sh
 sudo luarocks make rockspecs/zbus-scm-1.rockspec
 ```
+
 There is no official release yet.
 
 # Example
@@ -64,7 +66,7 @@ There is no official release yet.
 ## zbusd.lua
 
 **All examples require zbusd to run**:
-```shell
+```sh
 zbusd.lua
 ```
 It is a daemon process and will never return. If the zbusd.lua daemon is not started, all zbus.members will block until zbusd.lua is started.
@@ -114,7 +116,8 @@ member:call(
 
 ### Run the example
 check is zbusd.lua is running! The echo_server.lua will never return (it is a service!) and must be terminated with aisgnal of choice, e.g. kill.
-```shell
+
+```sh
 lua examples/echo_server.lua &
 lua examples/echo_client
 ```
@@ -173,7 +176,7 @@ member:call(
 
 ### Run the example
 check is zbusd.lua is running! The echo_server.lua will never return (it is a service!) and must be terminated with aisgnal of choice, e.g. kill.
-```shell
+```sh
 lua examples/echo_server_json.lua &
 lua examples/echo_client_json.lua
 ```
