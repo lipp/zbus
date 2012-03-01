@@ -106,12 +106,13 @@ local zbus = require'zbus'
 -- create a default zbus member
 local member = zbus.member()
 
--- register a function, which will be called, when a zbus-message's url matches expression
-member:call(
+-- call the service function and pass some argument string
+local result_str = member:call(
 	'echo', -- the method url/name
 	'Hello there' -- the argument string
 )
-
+-- verify that the echo service works
+assert(result_str=='Hello there')
 ```
 
 ### Run the example
@@ -165,12 +166,16 @@ local zbus_json_config = require'zbus.json'
 -- create a zbus member with the specified serializers
 local member = zbus.member(zbus_json_config)
 
--- register a function, which will be called, when a zbus-message's url matches expression
-member:call(
+-- call the service function and pass some arguments
+local res = {member:call(
 	'echo', -- the method url/name
 	'Hello',123,'is my number',{stuff=8181} -- the arguments
-)
-
+)}
+-- verify that the echo service works
+assert(res[1]=='Hello')
+assert(res[2]==123)
+assert(res[3]=='is my number')
+assert(res[4].stuff==8181)
 ```
 
 ### Run the example
