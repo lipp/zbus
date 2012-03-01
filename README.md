@@ -18,8 +18,8 @@ zbus is designed to allow:
 To achieve this, you have to become a zbus.member. zbus members can:
 
 -  register callbacks to handle inter-process method calls.
--  register callbacks to handle notifications (publish/_subscribe_)
--  send notificiations (_publish_/subscribe)
+-  register callbacks to handle notifications (publish/**subscribe**)
+-  send notificiations (**publish**/subscribe)
 -  call methods in another process
 -  a extendable event loop
 
@@ -50,14 +50,13 @@ zbus is Lua-only, so no build/compile process is involved.
 ## Install
 
 Latest version from github:
-```sh
-sudo luarocks install https://github.com/lipp/zbus/raw/master/rockspecs/zbus-scm-1.rockspec
-```
+
+       $ sudo luarocks install https://github.com/lipp/zbus/raw/master/rockspecs/zbus-scm-1.rockspec
+
 
 or from cloned repo directory:
-```sh
-sudo luarocks make rockspecs/zbus-scm-1.rockspec
-```
+
+   $ sudo luarocks make rockspecs/zbus-scm-1.rockspec
 
 There is no official release yet.
 
@@ -66,9 +65,10 @@ There is no official release yet.
 ## zbusd.lua
 
 **All examples require zbusd to run**:
-```sh
-zbusd.lua
-```
+
+      $ zbusd.lua
+
+
 It is a daemon process and will never return. If the zbusd.lua daemon is not started, all zbus.members will block until zbusd.lua is started.
 
 ## Providing an echo service and client without argument serialization
@@ -117,10 +117,9 @@ member:call(
 ### Run the example
 check is zbusd.lua is running! The echo_server.lua will never return (it is a service!) and must be terminated with aisgnal of choice, e.g. kill.
 
-```sh
-lua examples/echo_server.lua &
-lua examples/echo_client
-```
+      $ lua examples/echo_server.lua &
+      $ lua examples/echo_client
+
 
 ## Providing an echo service and client with JSON serialization
 
@@ -176,10 +175,10 @@ member:call(
 
 ### Run the example
 check is zbusd.lua is running! The echo_server.lua will never return (it is a service!) and must be terminated with aisgnal of choice, e.g. kill.
-```sh
-lua examples/echo_server_json.lua &
-lua examples/echo_client_json.lua
-```
+
+      $ lua examples/echo_server_json.lua &
+      $ lua examples/echo_client_json.lua
+
 
 
 
