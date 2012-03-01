@@ -237,18 +237,21 @@ zbus members must register routes to subscribe to notifications or to provide se
 ### zbus-registration-request
 A zbus-registration-request is a (zeromq) multi-part message with the following layout:
 
-<table border="1">               
+<table border="1">   
+       <tr>
+	<td>Message Part</td><td>Meaning</td><td>Example</td>
+       </tr>            
         <tr>		
-                <th>method</th><td>replier_add</td>
+                <td>1</td><td>method</td><td>replier_add</td>
         </tr>
         <tr>
-                <th>arg 1</th><td>tcp://127.0.0.1:8765</td>	
+                <td>2</td><td>arg 1</td><td>tcp://127.0.0.1:8765</td>	
         </tr>
         <tr>
-                <th>arg 2</th><td>^echo$</td>	
+                <td>3</td><td>arg 2</td><td>^echo$</td>	
         </tr>
         <tr>
-                <th> ... </th><td> ... </td>	
+                <td>n</td><td> ... </td><td> ... </td>	
         </tr>
 </table>
 The method part (first part) is required, all arguments to registration calls are further parts in the multi-part message.
@@ -257,31 +260,40 @@ The method part (first part) is required, all arguments to registration calls ar
 A zbus-registration-response is a (zeromq) message. 
 
 **In case of error, it has two parts**:
-<table border="1">               
+<table border="1">      
+       <tr>
+	<td>Message Part</td><td>Meaning</td><td>Example</td>
+       </tr>                     
         <tr>		
-                <th>result</th><td></td>
+                <td>1</td><td>result</td><td></td>
         </tr>
         <tr>
-                <th>error</th><td>some error message</td>	
+                <td>2</td><td>error</td><td>some error message</td>	
         </tr>
 </table>
 
 **In case of success, it has one part**:
-<table border="1">               
+<table border="1">      
+       <tr>
+	<td>Message Part</td><td>Meaning</td><td>Example</td>
+       </tr>                     
         <tr>		
-                <th>result</th><td>tcp://127.0.0.1:8765</td>
+                <td>1</td><td>result</td><td>tcp://127.0.0.1:8765</td>
         </tr>
 </table>
 
 ## Method-calls
 ### method-call-request
 The method-call-request message must always be a (zeromq) **two-part message**. The first argument is the method-url to call, the second is an argument string:
-<table border="1">               
+<table border="1">      
+       <tr>
+	<td>Message Part</td><td>Meaning</td><td>Example</td>
+       </tr>                     
         <tr>		
-                <th>method</th><td>echo</td>
+                <td>1</td><td>method</td><td>echo</td>
         </tr>
         <tr>
-                <th>argument</th><td>[1,111,"hallo"]</td>	
+                <td>2</td><td>argument</td><td>[1,111,"hallo"]</td>	
         </tr>
 </table>
 The format of the **argument and result data can be of any kind** (e.g.,ascii, JSON, binary, etc)! When using zbus/json.lua as zbus.member configuration, the member:call arguments are serialized to JSON arrays.
@@ -289,31 +301,40 @@ The format of the **argument and result data can be of any kind** (e.g.,ascii, J
 ### method-call-response
 The method-call-response message may:
 In case of **SUCCESS**, **one** part:
-<table border="1">               
+<table border="1">      
+       <tr>
+	<td>Message Part</td><td>Meaning</td><td>Example</td>
+       </tr>                     
         <tr>		
-                <th>result</th><td>[1,111,"hallo"]</td>
+                <td>1</td><td>result</td><td>[1,111,"hallo"]</td>
         </tr>
 </table>
 
-**In case of a handler error (**exception**), it has **two** parts:
-<table border="1">               
+In case of a **EXCEPTION** (handler error), it has **two** parts:
+<table border="1">      
+       <tr>
+	<td>Message Part</td><td>Meaning</td><td>Example</td>
+       </tr>                     
         <tr>		
-                <th>result</th><td></td>
+                <td>1</td><td>result</td><td></td>
         </tr>
         <tr>
-                <th>error</th><td>{error:"something went wrong",code=123}</td>	
+                <td>2</td><td>error</td><td>{error:"something went wrong",code=123}</td>	
         </tr>
 </table>
 
 In case of an **zbus/broker error**, it has **three** parts:
-<table border="1">               
+<table border="1">      
+       <tr>
+	<td>Message Part</td><td>Meaning</td><td>Example</td>
+       </tr>                     
         <tr>		
-                <th>result</th><td></td>
+                <td>1</td><td>result</td><td></td>
         </tr>
         <tr>
-                <th>error</th><td>ERR_AMBIGUOUS</td>	
+                <td>2</td><td>error</td><td>ERR_AMBIGUOUS</td>	
         </tr>
         <tr>
-                <th>error_desc</th><td>method ambiguous: echo</td>	
+                <td>3</td><td>error_desc</td><td>method ambiguous: echo</td>	
         </tr>
 </table>
