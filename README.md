@@ -284,17 +284,18 @@ The method-call-request message must always be a (zeromq) **two-part message**. 
                 <th>argument</th><td>[1,111,"hallo"]</td>	
         </tr>
 </table>
-The format of the argument data can be of any kind (e.g.,ascii, JSON, binary, etc). When using zbus/json.lua as zbus.member configuration, the member:call arguments are serialized to JSON arrays.
+The format of the **argument and result data can be of any kind** (e.g.,ascii, JSON, binary, etc)! When using zbus/json.lua as zbus.member configuration, the member:call arguments are serialized to JSON arrays.
 
 ### method-call-response
-The method-call-response message may has **one part in case of success**:
+The method-call-response message may:
+In case of **SUCCESS**, **one** part:
 <table border="1">               
         <tr>		
                 <th>result</th><td>[1,111,"hallo"]</td>
         </tr>
 </table>
 
-**In case of a handler error, it has two parts**:
+**In case of a handler error (**exception**), it has **two** parts:
 <table border="1">               
         <tr>		
                 <th>result</th><td></td>
@@ -304,7 +305,7 @@ The method-call-response message may has **one part in case of success**:
         </tr>
 </table>
 
-**In case of an zbus error, it has three parts**:
+In case of an **zbus/broker error**, it has **three** parts:
 <table border="1">               
         <tr>		
                 <th>result</th><td></td>
