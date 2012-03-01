@@ -2,9 +2,11 @@
 
 zbus is a message bus in Lua. 
 
-It allows processes to provide or call methods between each other and to publish and subscribe to notifications. The functionality provided should cover many use cases where [dbus](http://www.freedesktop.org/wiki/Software/dbus) may be suitable.
+It allows processes to provide or call methods between each other and to publish and subscribe notifications. The functionality provided should cover many use cases where [dbus](http://www.freedesktop.org/wiki/Software/dbus) may be suitable.
 
-In opposite to dbus, zbus neither describes a message format nor requires XML for service registration etc. It is possible to register methods which handle multiple method-urls to keep the broker slim. Anyhow, zbus comes with an optional JSON serializer, which allows convenient and typed interfaces.
+In opposite to dbus, zbus neither describes a message format nor requires XML for service registration etc. It is possible to register methods which handle multiple method-urls to keep the broker slim. Anyhow, zbus comes with an optional JSON serializer, which allows convenient and typed interfaces. Introspection is not part of zbus.
+
+If you are interested in a higher level bus, have a look at [jet](https://github.com/lipp/jet), which is build on top of zbus.
 
 ## Files
 
@@ -214,7 +216,7 @@ The broker traverses all registered notification expressions and forwards the co
 The broker traverses all registered method-call expressions and **assures that just one expression matches**. Otherwise the method-call url is ambigouos and an error message is returned In case of a unique match, the complete message is forwarded via the matched route. The response will be routed to the message queue which made the request.
 
 ### Registration
-zbus members must register routes to subscribe to notifications or to provide services (methods). A route consists of an expression (a [Lua pattern](http://www.lua.org/pil/20.2.html)) and a zeromq-socket-url (aka (zeromq-endpoint)[http://api.zeromq.org/2-1:zmq-connect]). The broker provides a so called **registration socket (default url: "tcp://*:33329", type ZMQ_REP)**, which accepts registration requests. These are the registration calls:
+zbus members must register routes to subscribe to notifications or to provide services (methods). A route consists of an expression (a [Lua pattern](http://www.lua.org/pil/20.2.html)) and a zeromq-socket-url (aka [zeromq-endpoint](http://api.zeromq.org/2-1:zmq-connect)). The broker provides a so called **registration socket (default url: "tcp://*:33329", type ZMQ_REP)**, which accepts registration requests. These are the registration calls:
 
 - **url** returns a a free local socket url from the pool
  + params: none
