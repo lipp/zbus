@@ -213,23 +213,23 @@ The broker traverses all registered method-call expressions and **assures that j
 ### Registration
 zbus members must register routes to subscribe to notifications or to provide services (methods). A route consists of an expression (a [Lua pattern](http://www.lua.org/pil/20.2.html)) and a zeromq-socket-url (aka (zeromq-endpoint)[http://api.zeromq.org/2-1:zmq-connect]). The broker provides a so called registration socket (default url: "tcp://*:33329", type ZMQ_REP), which accepts registration request. These are the registration calls:
 
-     - **url** returns a a free local socket url from the pool
-       + params: none
-     - **replier_open** registers a new (method) replier socket
-       + params: url 
-     - **replier_close** unregisters a previously opened (method) replier socket
-       + params: url
-     - **replier_add** adds an expression to the specified replier socket
-       + params: expression,url
-     - **replier_remove** removes an expression to the specified replier socket
-       + params: url,expression
-     - **listen_open** registers a new (subscribe) listen socket
-       + params: url 
-     - **listen_close** unregisters a previously opened (subscribe) listen socket
-       + params: url
-     - **listen_add** adds an expression to the specified listen socket
-       + params: expression,url
-     - **listen_remove** removes an expression to the specified listen socket
-       + params: url,expression
+- **url** returns a a free local socket url from the pool
+ + params: none
+- **replier_open** registers a new (method) replier socket
+ + params: url 
+- **replier_close** unregisters a previously opened (method) replier socket
+ + params: url
+- **replier_add** adds an expression to the specified replier socket
+ + params: expression,url
+- **replier_remove** removes an expression to the specified replier socket
+ + params: url,expression
+- **listen_open** registers a new (subscribe) listen socket
+ + params: url 
+- **listen_close** unregisters a previously opened (subscribe) listen socket
+ + params: url
+- **listen_add** adds an expression to the specified listen socket
+ + params: expression,url
+- **listen_remove** removes an expression to the specified listen socket
+ + params: url,expression
 
 ## Members
