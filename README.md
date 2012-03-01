@@ -75,7 +75,7 @@ There is no official release yet.
 
 It is a daemon process and will never return. If the zbusd.lua daemon is not started, all zbus.members will block until zbusd.lua is started.
 
-## Providing an echo service and client without argument serialization
+## Echo method (without argument serialization)
 
 ### The server providing the 'echo' method
 
@@ -127,7 +127,7 @@ check is zbusd.lua is running! The echo_server.lua will never return (it is a se
       $ lua examples/echo_client
 
 
-## Providing an echo service and client with JSON serialization
+## Echo method service and client (with JSON serialization)
 
 If a serialization config is provided, we can work with multiple typed arguments and return values.
 What the zbus_json_config does, is wrapping/unwrapping the arguments and results to a JSON array.
@@ -149,7 +149,7 @@ member:replier_add(
 	 -- the expression to match	
           '^echo$', 
 	  -- the callback gets passed in the matched url, in this case always 'echo', 
-	  -- and the unserialized argument string	
+	  -- and the unserialized argument data	
           function(url,...) 
 		print(url,...)
 		return ...
@@ -283,7 +283,7 @@ A registration-response is a (zeromq) message.
 	<td>Message Part</td><td>Meaning</td><td>Example</td>
        </tr>                     
         <tr>		
-                <td>1</td><td>Result</td><td></td>
+                <td>1</td><td>Placeholder</td><td></td>
         </tr>
         <tr>
                 <td>2</td><td>Error</td><td>some error message</td>	
@@ -302,7 +302,7 @@ A registration-response is a (zeromq) message.
 
 
 ### method-call-request
-The method-call-request is sent by a zbus member to issue a method call. The broker will forward the method-call-request as method-call-request-forward message. The method-call-request message must always be a (zeromq) **two-part message**. The first argument is the method-url to call, the second is an argument string:
+The method-call-request is sent by a zbus member to issue a method call. The broker will forward the method-call-request as method-call-request-forward message. The method-call-request message must always be a (zeromq) **two-part message**. The first argument is the method-url to call, the second is the argument:
 <table border="1">      
        <tr>
 	<td>Message Part</td><td>Meaning</td><td>Example</td>
@@ -316,7 +316,7 @@ The method-call-request is sent by a zbus member to issue a method call. The bro
 </table>
 
 ### method-call-request-forward
-The method-call-request-forward message is forwarded by the broker to the member who registered to handle it (based on the url). The message must always be a (zeromq) **two-part message**. The first argument is the method-url to call, the second is an argument string:
+The method-call-request-forward message is forwarded by the broker to the member who registered to handle it (based on the url). The message must always be a (zeromq) **two-part message**. The first argument is the method-url to call, the second is the argument:
 <table border="1">      
        <tr>
 	<td>Message Part</td><td>Meaning</td><td>Example</td>
@@ -352,7 +352,7 @@ In case of a **EXCEPTION** (handler error), it has **two** parts:
 	<td>Message Part</td><td>Meaning</td><td>Example</td>
        </tr>                     
         <tr>		
-                <td>1</td><td>Dummy</td><td></td>
+                <td>1</td><td>Placeholder</td><td></td>
         </tr>
         <tr>
                 <td>2</td><td>Error</td><td>{message:"something went wrong",code=123}</td>	
@@ -365,7 +365,7 @@ In case of an **zbus/broker error**, it has **three** parts:
 	<td>Message Part</td><td>Meaning</td><td>Example</td>
        </tr>                     
         <tr>		
-                <td>1</td><td>Dummy</td><td></td>
+                <td>1</td><td>Placeholder</td><td></td>
         </tr>
         <tr>
                 <td>2</td><td>Error</td><td>ERR_AMBIGUOUS</td>	
