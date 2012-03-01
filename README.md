@@ -283,21 +283,52 @@ A zbus-registration-response is a (zeromq) message.
         </tr>
 </table>
 
-## Method-calls
+## Messages
+
+There are kinds of zbus messages:
+
+- **method-call-request**, sent from a member to the broker method-call socket (default "tcp://*:33325")
+- **method-call-request-forward**, sent from the broker to the registered replier socket
+- **method-call-response**, sent from replier to the broker and from the broker to the requestor (the caller)
+- **notification**, sent from a member to the broker notification socket (default "tcp://*:33328")
+- **notification-forward**, sent from the broker to all listen sockets (subscribers)
+
+The format of the message data (argument/result/error/data) **can be of any kind** (e.g.,ascii, JSON, binary, etc)! 
+(When using zbus/json.lua as zbus.member configuration, all stuff is converted to and from JSON.)
+
+
 ### method-call-request
-The method-call-request message must always be a (zeromq) **two-part message**. The first argument is the method-url to call, the second is an argument string:
+The method-call-request is sent by a zbus member to issue a method call. The broker will forward the method-call-request as method-call-request-forward message. The method-call-request message must always be a (zeromq) **two-part message**. The first argument is the method-url to call, the second is an argument string:
 <table border="1">      
        <tr>
 	<td>Message Part</td><td>Meaning</td><td>Example</td>
        </tr>                     
         <tr>		
-                <td>1</td><td>method</td><td>echo</td>
+                <td>1</td><td>Method URL</td><td>echo</td>
         </tr>
         <tr>
-                <td>2</td><td>argument</td><td>[1,111,"hallo"]</td>	
+                <td>2</td><td>Argument</td><td>[1,111,"hallo"]</td>	
         </tr>
 </table>
-The format of the **argument and result data can be of any kind** (e.g.,ascii, JSON, binary, etc)! When using zbus/json.lua as zbus.member configuration, the member:call arguments are serialized to JSON arrays.
+
+### method-call-request-forward
+The method-call-request-forward message is forwarded by the broker to the member who registered to handle it (based on the url). The message must always be a (zeromq) **two-part message**. The first argument is the method-url to call, the second is an argument string:
+<table border="1">      
+       <tr>
+	<td>Message Part</td><td>Meaning</td><td>Example</td>
+       </tr> 
+        <tr>		
+                <td>1</td><td>Matched Expression</td><td>^echo$</td>
+        </tr>                    
+        <tr>		
+                <td>2</td><td>Method URL</td><td>echo</td>
+        </tr>
+        <tr>
+                <td>3</td><td>Argument</td><td>[1,111,"hallo"]</td>	
+        </tr>
+</table>
+The format of the **argument and result data can be of any kind** (e.g.,ascii, JSON, binary, etc)! 
+It COULD be JSON (e.g. when using zbus/json.lua as zbus.member configuration, the member:call arguments and result are serialized to JSON.)
 
 ### method-call-response
 The method-call-response message may:
@@ -307,7 +338,7 @@ In case of **SUCCESS**, **one** part:
 	<td>Message Part</td><td>Meaning</td><td>Example</td>
        </tr>                     
         <tr>		
-                <td>1</td><td>result</td><td>[1,111,"hallo"]</td>
+                <td>1</td><td>Result</td><td>[1,111,"hallo"]</td>
         </tr>
 </table>
 
@@ -317,10 +348,10 @@ In case of a **EXCEPTION** (handler error), it has **two** parts:
 	<td>Message Part</td><td>Meaning</td><td>Example</td>
        </tr>                     
         <tr>		
-                <td>1</td><td>result</td><td></td>
+                <td>1</td><td>Dummy</td><td></td>
         </tr>
         <tr>
-                <td>2</td><td>error</td><td>{error:"something went wrong",code=123}</td>	
+                <td>2</td><td>Error</td><td>{message:"something went wrong",code=123}</td>	
         </tr>
 </table>
 
@@ -330,12 +361,54 @@ In case of an **zbus/broker error**, it has **three** parts:
 	<td>Message Part</td><td>Meaning</td><td>Example</td>
        </tr>                     
         <tr>		
-                <td>1</td><td>result</td><td></td>
+                <td>1</td><td>Dummy</td><td></td>
         </tr>
         <tr>
-                <td>2</td><td>error</td><td>ERR_AMBIGUOUS</td>	
+                <td>2</td><td>Error</td><td>ERR_AMBIGUOUS</td>	
         </tr>
         <tr>
-                <td>3</td><td>error_desc</td><td>method ambiguous: echo</td>	
+                <td>3</td><td>Error description</td><td>method ambiguous: echo</td>	
         </tr>
 </table>
+
+### notification
+notifications can be send by a zbus member to the broker. The broker will forward them as notification-forward message to all subscribers. The notification message looks like:
+<table border="1">      
+       <tr>
+	<td>Message Part</td><td>Meaning</td><td>Example</td>
+       </tr>                     
+        <tr>		
+                <td>1</td><td>Topic URL</td><td>adc.status</td>
+        </tr>
+        <tr>
+                <td>2</td><td>Data</td><td>overflow</td>	
+        </tr>
+</table>
+
+### notification-forward
+listeners will receive notification-forward messages on the registered zmq socket. The notification message looks like:
+<table border="1">      
+       <tr>
+	<td>Message Part</td><td>Meaning</td><td>Example</td>
+       </tr> 
+        <tr>		
+                <td>1</td><td>Matched expression</td><td>^adc.*</td>
+        </tr>                    
+        <tr>		
+                <td>2</td><td>Topic URL</td><td>adc.status</td>
+        </tr>
+        <tr>
+                <td>3</td><td>Data</td><td>overflow</td>	
+        </tr>
+</table>
+
+
+
+## Members
+everyone who wants to use the zbus is called a **zbus member**. zbus members may:
+
+- call methods
+- subscribe/unsubscribe to notifications (so called listener)
+- register/provide methods (so called replier)
+- publish notifications
+
