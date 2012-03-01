@@ -2,15 +2,15 @@
 
 zbus is a message bus in Lua. 
 
-It allows processes to provide or call methods between each other and to publish and subscribe to notifications. The funcionality provided should cover many use cases where [dbus](http://www.freedesktop.org/wiki/Software/dbus) may be suitable.
+It allows processes to provide or call methods between each other and to publish and subscribe to notifications. The functionality provided should cover many use cases where [dbus](http://www.freedesktop.org/wiki/Software/dbus) may be suitable.
 
-In opposite to dbus, zbus does neither describe a message format nor requires XML for service registration etc. It is possible to register methods for expressions, which match a set of method urls/names, to keep the broker slim. Anyhow, zbus comes with an optional JSON serializer, which allows convenient and typed interfaces.
+In opposite to dbus, zbus neither describes a message format nor requires XML for service registration etc. It is possible to register methods which handle multiple method-urls to keep the broker slim. Anyhow, zbus comes with an optional JSON serializer, which allows convenient and typed interfaces.
 
 ## Files
 
--    zbusd.lua: A Lua program, which acts as "message broker" or "router"
--    zbus.lua: The Lua module, which provides an API for being a zbus member (zbus.member)
--    zbus/json.lua: An optional Lua module, which defines JSON serialization methods
+-    **zbusd.lua**: A Lua program, which acts as "message broker" or "router"
+-    **zbus.lua**: The Lua module, which provides an API for being a zbus member (zbus.member)
+-    **zbus/json.lua**: An optional Lua module, which defines JSON serialization methods
 
 ## Purpose
 
@@ -88,13 +88,14 @@ local member = zbus.member()
 
 -- register a function, which will be called, when a zbus-message's url matches expression
 member:replier_add(
-	 -- the expression to match	
+	  -- the expression to match ^matches string begin, $ matches string end	
           '^echo$', 
-	  -- the callback gets passed in the matched url, in this case always 'echo', and the unserialized argument string	
-          function(url,argument_str) 
-		print(url,argument_str)
-		return argument_str
-          end)
+	  -- the callback gets passed in the matched url, in this case always 'echo', 
+	  -- and the unserialized argument string	
+	  function(url,argument_str) 
+	       print(url,argument_str)
+	       return argument_str
+         end)
 
 -- start the event loop, which will forward all 'echo' calls to member.
 member:loop()
@@ -147,7 +148,8 @@ local member = zbus.member(zbus_json_config)
 member:replier_add(
 	 -- the expression to match	
           '^echo$', 
-	  -- the callback gets passed in the matched url, in this case always 'echo', and the unserialized argument string	
+	  -- the callback gets passed in the matched url, in this case always 'echo', 
+	  -- and the unserialized argument string	
           function(url,...) 
 		print(url,...)
 		return ...
@@ -194,24 +196,24 @@ check is zbusd.lua is running! The echo_server.lua will never return (it is a se
 
 ## Broker (zbusd.lua)
 
-Effectively zbusd.lua just starts the zbus broker and the terms can be used interchangeably. 
+Effectively *zbusd.lua* just starts the *zbus broker*. The terms *zbusd* and *broker* are used interchangeably in this context. 
 
 The broker has two jobs: 
-    - **route zbus-messages** for method calls and notifications
-    - **provide means for route registration** to allow members to interact with the zbus
-    - **url pool** for automatic socket assignment
+- **route zbus-messages** for method calls and notifications
+- **provide means for route registration** to allow members to interact with the zbus
+- **url pool** for automatic socket assignment
 
 ### Routing
-The zbus-messages are routed based on their url part (the first part of the multi-part message). The process for notifications and method calls differs slightly.
+The zbus-messages are routed based on their url part (the first part of the multi-part message). The process for notifications and method-calls differs slightly.
 
 #### Notification routing
 The broker traverses all registered notification expressions and forwards the complete message to **all** matching routes.
 
 #### Method request routing
-The broker traverses all registered method-call expressions and **assures that just one expression matches**. Otherwise the method-call url is ambigouos. In case of a unique match, the complete message is forwarded via the matched route. The response will be routed to the message queue which made the request.
+The broker traverses all registered method-call expressions and **assures that just one expression matches**. Otherwise the method-call url is ambigouos and an error message is returned In case of a unique match, the complete message is forwarded via the matched route. The response will be routed to the message queue which made the request.
 
 ### Registration
-zbus members must register routes to subscribe to notifications or to provide services (methods). A route consists of an expression (a [Lua pattern](http://www.lua.org/pil/20.2.html)) and a zeromq-socket-url (aka (zeromq-endpoint)[http://api.zeromq.org/2-1:zmq-connect]). The broker provides a so called registration socket (default url: "tcp://*:33329", type ZMQ_REP), which accepts registration request. These are the registration calls:
+zbus members must register routes to subscribe to notifications or to provide services (methods). A route consists of an expression (a [Lua pattern](http://www.lua.org/pil/20.2.html)) and a zeromq-socket-url (aka (zeromq-endpoint)[http://api.zeromq.org/2-1:zmq-connect]). The broker provides a so called **registration socket (default url: "tcp://*:33329", type ZMQ_REP)**, which accepts registration requests. These are the registration calls:
 
 - **url** returns a a free local socket url from the pool
  + params: none
@@ -231,5 +233,24 @@ zbus members must register routes to subscribe to notifications or to provide se
  + params: expression,url
 - **listen_remove** removes an expression to the specified listen socket
  + params: url,expression
+
+### zbus-registration-messages
+A zbus-registration-messages is a (zeromq) multi-part message with the following layout:
+
+<table border="1">               
+        <tr>		
+                <th>method</th><td></td>
+        </tr>
+        <tr>
+                <th>arg 1</th><td></td>	
+        </tr>
+        <tr>
+                <th>arg 2</th><td></td>	
+        </tr>
+        <tr>
+                <th> ... </th><td> ... </td>	
+        </tr>
+</table>
+
 
 ## Members
