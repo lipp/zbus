@@ -199,6 +199,7 @@ check is zbusd.lua is running! The echo_server.lua will never return (it is a se
 Effectively *zbusd.lua* just starts the *zbus broker*. The terms *zbusd* and *broker* are used interchangeably in this context. 
 
 The broker has two jobs: 
+
 - **route zbus-messages** for method calls and notifications
 - **provide means for route registration** to allow members to interact with the zbus
 - **url pool** for automatic socket assignment
