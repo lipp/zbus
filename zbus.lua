@@ -16,6 +16,7 @@ local setmetatable = setmetatable
 local cjson = require'cjson'
 local os = require'os'
 local print = print
+local tconcat = table.concat
 
 module('zbus')
 local zcontext = zmq.init(1)
@@ -72,7 +73,7 @@ member =
         self.broker_reg:send(mname)
         local resp = self.broker_reg:recv()
         if self.broker_reg:getopt(zRCVMORE) > 0 then
-          error('broker call failed '..self.broker_reg:recv())
+	   error('broker call "'..tconcat(args,',')..'" failed:'..self.broker_reg:recv())
         else
 --          log('broker_call',unpack(args),'=>',resp)
           return resp
@@ -82,11 +83,10 @@ member =
     self.listen_init = 
       function(self)        
         assert(not self.listen)
-        local listen_url = self:broker_call{'url'}
+        self.listen_url = self:broker_call{'url_get'}
         self.listen = zcontext:socket(zmq.PULL)
-        self.listen:bind(listen_url)
-        self:broker_call{'listen_open',listen_url}
-        self.listen_url = listen_url          
+        self.listen:bind(self.listen_url)
+        self:broker_call{'listen_open',self.listen_url}
         self.listen_callbacks = {}          
       end
 
@@ -112,11 +112,10 @@ member =
     self.replier_init = 
       function(self)
         assert(not self.rep)
-        local rep_url = self:broker_call{'url'}
+        self.rep_url = self:broker_call{'url_get'}
         self.rep = zcontext:socket(zmq.REP)
-        self.rep_url = rep_url
-        self.rep:bind(rep_url)
-        self:broker_call{'replier_open',rep_url}
+        self.rep:bind(self.rep_url)
+        self:broker_call{'replier_open',self.rep_url}
         self.reply_callbacks = {}
       end
     
@@ -210,11 +209,23 @@ member =
         if self.rep then
           self:broker_call{'replier_close',self.rep_url}
         end
-        if self.notify_sock then self.notify_sock:close() end
-        if self.broker_reg then self.broker_reg:close() end
-        if self.listen then self.listen:close() end
-        if self.rep then self.rep:close() end
-        if self.rpc_sock then self.rpc_sock:close() end
+        if self.notify_sock then 
+	   self.notify_sock:close() 
+	end
+        if self.listen then 
+	   self.listen:close() 
+	   self:broker_call{'url_release',self.listen_url}
+	end
+        if self.rep then 
+	   self.rep:close() 
+	   self:broker_call{'url_release',self.rep_url}
+	end
+        if self.broker_reg then 
+	   self.broker_reg:close() 
+	end
+        if self.rpc_sock then 
+	   self.rpc_sock:close() 
+	end
       end
 
     self.reply_io = 
@@ -335,40 +346,39 @@ member =
     return self
   end
 
-
--- NOT USED YET!!!
-local port_map = 
-  function()
+local url_pool = 
+  function(interface,port_min,port_max)
     local self = {}
     self.free = {}
-    local min,max=10000,10020
-    for p=min,max do
-      table.insert(self.free,p)
+    self.used = {}
+    self.url_base = 'tcp://'..interface..':'
+    for port = port_min,port_max do       
+       self.free[self.url_base..port] = true
     end
     self.get = 
       function(self)
-        local k,p = pairs(self.free)(self.free)
-        if k and p then
-          table.remove(self.free,k)
-        end
-        return p
+	 -- get first table element
+        local url = pairs(self.free)(self.free)
+	if url then
+	   self.free[url] = nil
+	   self.used[url] = true
+	   return url
+	else
+	   error('url pool empty')
+	end
       end
     self.release =
-      function(self,p)
-        assert(p <= max and p >= min)
-        local is_already_free
-        for k,v in pairs(self.free) do
-          if v == p then
-            is_already_free = true
-          end
-        end
-        if not is_already_free then
-          table.insert(self.free,p)
-        end
+      function(self,url)	 
+	 if self.used[url] then
+	    self.used[url] = nil
+	    self.free[url] = true
+	    return true
+	 else
+	    error('invalid url')
+	 end
       end
     return self
   end
-
 
 broker = 
   function(config)
@@ -386,21 +396,11 @@ broker =
     self.poller = config.poller or zpoller(2)
     self.repliers = {}
     self.listeners = {}
-    self.url_pool_interface = config.url_pool_interface or url_pool_default_interface
-    self.url_pool_port_min = config.url_pool_port_min or url_pool_default_port_min
-    self.url_pool_port_max = config.url_pool_port_max or url_pool_default_port_max
-    self.url_pool_port = self.url_pool_port_min
-
-    self.get_url = 
-      function(self)
-        if self.url_pool_port > self.url_pool_port_max then
-          error('url_pool_empty')
-        end
-        local url = 'tcp://'..self.url_pool_interface..':'..self.url_pool_port
-        self.url_pool_port = self.url_pool_port + 1
---        log('url',url)
-        return url
-      end
+    self.url_pool = url_pool(
+       config.url_pool_interface or url_pool_default_interface,
+       config.url_pool_port_min or url_pool_default_port_min,
+       config.url_pool_port_min  or url_pool_default_port_max
+    )
 
     self.new_replier = 
       function(self,url)
@@ -433,9 +433,13 @@ broker =
       end
 
     self.reg_calls = {
-      url = 
+      url_get = 
         function()
-          return self:get_url()
+	   return self.url_pool:get()
+        end,
+      url_release = 
+        function(url)
+	   self.url_pool:release(url)
         end,
       replier_open = 
         function(replier_url)
