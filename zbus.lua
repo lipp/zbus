@@ -147,6 +147,7 @@ member =
         local expr = rep:recv()
         local method = rep:recv()
         local arguments = rep:recv()
+	assert(self.reply_callbacks[expr])
 --        log('handle_req',expr,method,arguments,'async',self.reply_callbacks[expr].async)                
         local on_success = 
           function(...)
@@ -186,6 +187,7 @@ member =
         local expr = listen:recv()
         local method = listen:recv()
         local arguments = listen:recv()
+	assert(self.listen_callbacks[expr])
         self.listen_callbacks[expr](method,self.unserialize_args(arguments))
       end
 
@@ -515,7 +517,6 @@ broker =
 
     local dispatch_reg = 
       function()
-
         local cmd = self.reg:recv()
         local args = {}
         while self.reg:getopt(zRCVMORE) > 0 do
@@ -532,17 +533,32 @@ broker =
           ret = ret or ''
           self.reg:send(ret)
         end
+     end
+
+   local send_error = 
+      function(router,xid,err_id,err)
+	   router:send(xid,zSNDMORE)
+	   router:send('',zSNDMORE)
+	   router:send('',zSNDMORE)
+	   router:send(err_id,zSNDMORE)        
+	   router:send(err,0)                	   
       end
     
     local forward_rpc =
       function()
         local router = self.router
-        local xid = router:recv()
-        assert(router:getopt(zRCVMORE)>0)
+        local xid = router:recv()	
+        if router:getopt(zRCVMORE) < 1 then
+	   send_error(router,xid,'ERR_INVALID_MESSAGE','NO_EMPTY_PART')
+	end
         assert(router:recv()=='')
-        assert(router:getopt(zRCVMORE)>0)
+        if router:getopt(zRCVMORE) < 1 then
+	   send_error(router,xid,'ERR_INVALID_MESSAGE','NO_METHOD')
+	end
         local method = router:recv()
-        assert(router:getopt(zRCVMORE)>0)
+        if router:getopt(zRCVMORE) < 1 then
+	   send_error(router,xid,'ERR_INVALID_MESSAGE','NO_ARG')
+	end
         local arg = router:recv()        
         log('rpc',method,arg)
         local dealer,matched_exp
@@ -568,11 +584,7 @@ broker =
           err_id = 'ERR_NOMATCH'
         end
         if err then
-          router:send(xid,zSNDMORE)
-          router:send('',zSNDMORE)
-          router:send('',zSNDMORE)
-          router:send(tostring(err_id),zSNDMORE)        
-          router:send(err,0)                
+	   send_error(router,xid,err_id,err)
         else          
           dealer:send(xid,zSNDMORE)
           dealer:send('',zSNDMORE)
@@ -587,7 +599,9 @@ broker =
         repeat
           local notify = self.notify
           local topic = notify:recv()
-          assert(self.notify:getopt(zRCVMORE) > 0)
+          if self.notify:getopt(zRCVMORE) < 1 then
+	     log('notify','invalid message','no_data')
+	  end
           local data = notify:recv()
           log('notify',topic,data)
           for url,listener in pairs(self.listeners) do
@@ -595,7 +609,6 @@ broker =
               log('notify','trying',topic,data)
               if topic:match(exp) then
                 log('notify','matched',topic,exp,url)
---                log(exp,topic,topic:match(exp))
                 listener.push:send(exp,zSNDMORE)
                 listener.push:send(topic,zSNDMORE)
                 listener.push:send(data,0)
