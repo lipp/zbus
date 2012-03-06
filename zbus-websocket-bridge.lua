@@ -1,4 +1,5 @@
 local cjson = require'cjson'
+local tinsert = table.insert
 local ev = require'ev'
 local websockets = require'websockets'
 local zbus = require'zbus'
@@ -16,7 +17,7 @@ zbus_config.exit =
       end
       context:destroy()
    end
-local m = zbus.member(zbus_config)
+local zm = zbus.member(zbus_config)
 
 context = websockets.context{
    port = arg[2] or 8002,
@@ -62,7 +63,7 @@ context = websockets.context{
       	       function(ws,data)
 		  local req = cjson.decode(data)
 		  local resp = {id=req.id}
-		  local result = {pcall(m.call,m,req.method,unpack(req.params))}
+		  local result = {pcall(zm.call,zm,req.method,unpack(req.params))}
 		  if result[1] then 
 		     table.remove(result,1);
 		     resp.result = result
@@ -73,20 +74,28 @@ context = websockets.context{
       	       end)
          end,
       ['zbus-notification'] =
-         function(ws)	  
+         function(ws)
+	    ws:on_broadcast(websockets.WRITE_TEXT)
          end
    }
 }
 
-m:listen_add(
+local notifications = {}
+
+zm:listen_add(
    '.*',
-   function(method,...)
-      local req = {}
-      req.method = method
-      req.params = {...}
-      context:broadcast('zbus-notification',cjson.encode(req))
+   function(topic,more,...)
+      tinsert(notifications,{
+		 topic = topic,
+		 data = {...}
+	      })
+      if not more then
+	 context:broadcast('zbus-notification',
+			   cjson.encode(notifications))
+	 notifications = {}
+      end
    end)
 
-m:loop()
+zm:loop()
 
 

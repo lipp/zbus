@@ -17,6 +17,7 @@ local cjson = require'cjson'
 local os = require'os'
 local print = print
 local tconcat = table.concat
+local tinsert = table.insert
 
 module('zbus')
 local zcontext = zmq.init(1)
@@ -33,6 +34,10 @@ local zSNDMORE = zmq.SNDMORE
 local zRCVMORE = zmq.RCVMORE
 local zEVENTS = zmq.EVENTS
 
+local empty = 
+   function(tab)
+      return not pairs(tab)(tab)
+   end
 
 local identity = 
   function(a)
@@ -148,7 +153,7 @@ member =
         local method = rep:recv()
         local arguments = rep:recv()
 	assert(self.reply_callbacks[expr])
---        log('handle_req',expr,method,arguments,'async',self.reply_callbacks[expr].async)                
+--        log('handle_req',expr,method,arguments,'async',self.reply_callbacks[expr].async)
         local on_success = 
           function(...)
             rep:send(self.serialize_result(...))  
@@ -183,23 +188,35 @@ member =
       end
     self.handle_notify = 
       function()
-        local listen = self.listen
-        local expr = listen:recv()
-        local method = listen:recv()
-        local arguments = listen:recv()
-	assert(self.listen_callbacks[expr])
-        self.listen_callbacks[expr](method,self.unserialize_args(arguments))
+	 local listen = self.listen
+	 repeat 
+	    local expr = listen:recv()
+	    local topic = listen:recv()
+	    local arguments = listen:recv()
+	    assert(self.listen_callbacks[expr])
+	    local more = listen:getopt(zRCVMORE) > 0
+	    self.listen_callbacks[expr](topic,more,self.unserialize_args(arguments))
+	 until not more
       end
-
+   
     self.notify = 
       function(self,topic,...)
-        if not self.notify_sock then
-          self.notify_sock = zcontext:socket(zmq.PUSH)
-          local notify_url = 'tcp://'..(config.notify_ip or default_ip)..':'..(config.notify_port or default_notify_port)
-          self.notify_sock:connect(notify_url)    
-        end
-        self.notify_sock:send(topic,zSNDMORE)
-        self.notify_sock:send(self.serialize_args(...),0)
+	 self:notify_more(topic,false,...)
+     end
+
+   self.notify_more = 
+      function(self,topic,more,...)
+	 local option = 0
+	 if more then
+	    option = zSNDMORE
+	 end
+	 if not self.notify_sock then
+	    self.notify_sock = zcontext:socket(zmq.PUSH)
+	    local notify_url = 'tcp://'..(config.notify_ip or default_ip)..':'..(config.notify_port or default_notify_port)
+	    self.notify_sock:connect(notify_url)    
+	 end
+	 self.notify_sock:send(topic,zSNDMORE)
+	 self.notify_sock:send(self.serialize_args(...),option)
       end
     
    
@@ -594,28 +611,47 @@ broker =
         end
       end  
 
-    local forward_notify = 
+   local forward_notify = 
       function()
-        repeat
-          local notify = self.notify
-          local topic = notify:recv()
-          if self.notify:getopt(zRCVMORE) < 1 then
-	     log('notify','invalid message','no_data')
-	  end
-          local data = notify:recv()
-          log('notify',topic,data)
-          for url,listener in pairs(self.listeners) do
-            for _,exp in pairs(listener.exps) do
-              log('notify','trying',topic,data)
-              if topic:match(exp) then
-                log('notify','matched',topic,exp,url)
-                listener.push:send(exp,zSNDMORE)
-                listener.push:send(topic,zSNDMORE)
-                listener.push:send(data,0)
-              end
-            end
-          end
-        until notify:getopt(zRCVMORE) <= 0
+	 local notify = self.notify
+	 local todos = {}
+	 repeat
+	    local topic = notify:recv()	   
+	    if notify:getopt(zRCVMORE) < 1 then
+	       log('notify','invalid message','no_data')
+	       break
+	    end
+	    local data = notify:recv()
+	    log('notify',topic,data)
+	    for url,listener in pairs(self.listeners) do
+	       for _,exp in pairs(listener.exps) do
+		  log('notify','trying',topic,data)
+		  if topic:match(exp) then
+		     if not todos[listener] then
+			todos[listener] = {}
+		     end
+		     tinsert(todos[listener],{
+				topic = topic,
+				data = data,
+				exp = exp
+			     })
+		     log('notify','matched',topic,exp,url)		     		    
+		  end
+	       end
+	    end
+	 until notify:getopt(zRCVMORE) <= 0
+	 for listener,notifications in pairs(todos) do
+	    local len = #notifications
+	    for i,notification in ipairs(notifications) do
+	       local option = zSNDMORE
+	       if i == len then
+		  option = 0
+	       end
+	       listener.push:send(notification.exp,zSNDMORE)
+	       listener.push:send(notification.topic,zSNDMORE)
+	       listener.push:send(notification.data,option)
+	    end
+	 end
       end
     
     self.forward_rpc = forward_rpc
