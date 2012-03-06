@@ -6,6 +6,10 @@ local zbus = require'zbus'
 local file_dir = arg[1] or './'
 local ws_ios = {}
 local context = nil
+local log = 
+   function(...)
+      print('zbus-websocket-bridge',...)
+   end
 local zbus = require'zbus'
 local zbus_config = require'zbus.json'
 zbus_config.name = 'jet.websocket'
@@ -18,6 +22,7 @@ zbus_config.exit =
       context:destroy()
    end
 local zm = zbus.member(zbus_config)
+local clients = 0
 
 context = websockets.context{
    port = arg[2] or 8002,
@@ -75,26 +80,35 @@ context = websockets.context{
          end,
       ['zbus-notification'] =
          function(ws)
+	    if clients == 0 then
+	       local notifications = {}
+	       log('listen to jet')
+	       zm:listen_add(
+		  '^.*:value$',
+		  function(topic,more,...)
+		     tinsert(notifications,{
+				topic = topic,
+				data = {...}
+			     })
+		     if not more then
+			context:broadcast('zbus-notification',
+					  cjson.encode(notifications))
+			notifications = {}
+		     end
+		  end)	       
+	    end
+	    clients = clients + 1
 	    ws:on_broadcast(websockets.WRITE_TEXT)
+	    ws:on_closed(function()
+			   clients = clients - 1
+			   if clients == 0 then
+			      log('unlisten to jet')
+			      zm:listen_remove('^.*:value$')
+			   end
+			end)
          end
    }
 }
-
-local notifications = {}
-
-zm:listen_add(
-   '.*',
-   function(topic,more,...)
-      tinsert(notifications,{
-		 topic = topic,
-		 data = {...}
-	      })
-      if not more then
-	 context:broadcast('zbus-notification',
-			   cjson.encode(notifications))
-	 notifications = {}
-      end
-   end)
 
 zm:loop()
 
