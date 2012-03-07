@@ -221,34 +221,45 @@ The broker traverses all registered method-call expressions and **assures that j
 ### Registration
 zbus members must register routes to subscribe to notifications or to provide services (methods). A route consists of an expression (a [Lua pattern](http://www.lua.org/pil/20.2.html)) and a zeromq-socket-url (aka [zeromq-endpoint](http://api.zeromq.org/2-1:zmq-connect)). The broker provides a so called **registration socket (default url: "tcp://*:33329", type ZMQ_REP)**, which accepts registration requests. These are the registration calls:
 
-- **url** returns a a free local socket url from the pool
+- **url** returns a free local socket url from the pool.
  + params: none
-- **replier_open** registers a new (method) replier socket
+ + return: (local) zeromq url to use for replier or listener socket
+- **replier_open** registers a new (method) replier socket. The broker
+ opens a zeromq dealer (ZMQ_XREQ) to specified url.
  + params: url 
-- **replier_close** unregisters a previously opened (method) replier socket
+ + return: none 
+- **replier_close** unregisters a previously opened (method) replier
+ socket and closes the zeromq dealer.
  + params: url
-- **replier_add** adds an expression to the specified replier socket
+- **replier_add** adds an expression to the specified replier
+ socket. Tells the broker to forward incoming _method-call-request_ to
+ the specified url as _method-call-request-forward_ if they match the
+ expression. The replier must return a _method-call-response_.
  + params: expression,url
-- **replier_remove** removes an expression to the specified replier socket
+- **replier_remove** removes an expression to the specified replier
+ socket. Stops the broker from forwarding incoming _method-call-request_
+ to the specified url.
  + params: url,expression
-- **listen_open** registers a new (subscribe) listen socket
+- **listen_open** registers a new (subscribe) listen socket. The
+ broker opens a socket of type ZMQ_PUSH. 
  + params: url 
 - **listen_close** unregisters a previously opened (subscribe) listen socket
  + params: url
-- **listen_add** adds an expression to the specified listen socket
+- **listen_add** adds an expression to the specified listen socket. Incoming _notifications_ are
+ forwarded as _notification-forward_ to this socket if they match the expression.
  + params: expression,url
 - **listen_remove** removes an expression to the specified listen socket
  + params: url,expression
-
 
 
 ## Messages
 
 There are seven kinds of zbus messages:
 
-- **registration-request**, sent from zbus members to the broker
-- **registration-response**, sent from the broker to zbus members
-- **method-call-request**, sent from a member to the broker method-call socket (default "tcp://*:33325")
+- **registration-request**, sent from zbus members to the broker to manage repliers and listeners
+- **registration-response**, sent from the broker to zbus members as response to a registration-request
+- **method-call-request**, sent from a member to the broker
+- **method-call socket** (default "tcp://*:33325") to call a method on an unknown bus member
 - **method-call-request-forward**, sent from the broker to the registered replier socket
 - **method-call-response**, sent from replier to the broker and from the broker to the requestor (the caller)
 - **notification**, sent from a member to the broker notification socket (default "tcp://*:33328")
