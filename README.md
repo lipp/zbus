@@ -277,7 +277,7 @@ A registration-request is a (zeromq) multi-part message with the following layou
                 <td>...</td><td> ... </td><td> ... </td>	
         </tr>
         <tr>
-                <td>arg n</td><td> ... </td><td> ... </td>	
+                <td>n + 1</td>arg n<td> ... </td><td> ... </td>	
         </tr>
 </table>
 The method part (first part) is required, all arguments to registration calls are further parts in the multi-part message.
@@ -409,10 +409,10 @@ must be at least one Topic/Data tuple. The notification message looks like:
                 <td>...</td><td>...</td><td>...</td>	
         </tr>
         <tr>		
-                <td>n</td><td>Topic URL n</td><td>...</td>
+                <td>n*2</td><td>Topic URL n</td><td>...</td>
         </tr>
         <tr>
-                <td>n+1</td><td>Data n </td><td>...</td>	
+                <td>n*2+1</td><td>Data n </td><td>...</td>	
         </tr>
 </table>
 
@@ -448,13 +448,13 @@ may be more. The notification message looks like:
                 <td>...</td><td>...</td><td>...</td>
         </tr>                    
         <tr>		
-                <td>n</td><td>Matched expression n</td><td>...</td>
+                <td>n*3</td><td>Matched expression n</td><td>...</td>
         </tr>                    
         <tr>		
-                <td>n+1</td><td>Topic URL n</td><td>...</td>
+                <td>n*3+1</td><td>Topic URL n</td><td>...</td>
         </tr>
         <tr>
-                <td>n+2</td><td>Data n</td><td>...</td>	
+                <td>n*3+2</td><td>Data n</td><td>...</td>	
         </tr>
 
 </table>
