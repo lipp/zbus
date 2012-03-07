@@ -5,8 +5,10 @@ local zbus = require'zbus'
 local member = zbus.member()
 
 -- call the service function
-local result_str = member:call(
-	'echo', -- the method url/name
-	'Hello there' -- the argument string
-)
-assert(result_str == 'Hello there')
+for i=1,arg[1] or 1 do
+  local result_str = member:call(
+    'echo', -- the method url/name
+    'Hello there' -- the argument string
+  )
+  assert(result_str == 'Hello there')
+end
