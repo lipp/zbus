@@ -149,19 +149,21 @@ member =
       function()        
         log('handle_req')
         local rep = self.rep
-        local expr = rep:recv()
-        local method = rep:recv()
-        local arguments = rep:recv()
+        local recv = rep.recv
+        local send = rep.send
+        local expr = recv(rep)
+        local method = recv(rep)
+        local arguments = recv(rep)
 	assert(self.reply_callbacks[expr])
 --        log('handle_req',expr,method,arguments,'async',self.reply_callbacks[expr].async)
         local on_success = 
           function(...)
-            rep:send(self.serialize_result(...))  
+            send(rep,self.serialize_result(...))  
           end
         local on_error = 
           function(err)
-            rep:send('',zSNDMORE)          
-            rep:send(self.serialize_err(err))
+            send(rep,'',zSNDMORE)          
+            send(rep,self.serialize_err(err))
           end        
         local result        
         if self.reply_callbacks[expr].async then
@@ -189,12 +191,14 @@ member =
     self.handle_notify = 
       function()
 	 local listen = self.listen
+        local recv = listen.recv
+        local more
 	 repeat 
-	    local expr = listen:recv()
-	    local topic = listen:recv()
-	    local arguments = listen:recv()
-	    assert(self.listen_callbacks[expr])
-	    local more = listen:getopt(zRCVMORE) > 0
+	    local expr = recv(listen)
+	    local topic = recv(listen)
+	    local arguments = recv(listen)
+--	    assert(self.listen_callbacks[expr])
+	    more = listen:getopt(zRCVMORE) > 0
 	    self.listen_callbacks[expr](topic,more,self.unserialize_args(arguments))
 	 until not more
       end
@@ -206,17 +210,20 @@ member =
 
    self.notify_more = 
       function(self,topic,more,...)
-	 local option = 0
+	 local option = 0        
 	 if more then
 	    option = zSNDMORE
 	 end
-	 if not self.notify_sock then
+         local nsock = self.notify_sock
+	 if not nsock then
 	    self.notify_sock = zcontext:socket(zmq.PUSH)
 	    local notify_url = 'tcp://'..(config.notify_ip or default_ip)..':'..(config.notify_port or default_notify_port)
 	    self.notify_sock:connect(notify_url)    
+            nsock = self.notify_sock
 	 end
-	 self.notify_sock:send(topic,zSNDMORE)
-	 self.notify_sock:send(self.serialize_args(...),option)
+         local send = nsock.send
+	 send(nsock,topic,zSNDMORE)
+	 send(nsock,self.serialize_args(...),option)
       end
     
    
@@ -357,8 +364,14 @@ member =
         ev.Signal.new(quit_and_exit,SIGINT):start(loop)
         ev.Signal.new(quit_and_exit,SIGKILL):start(loop)
         ev.Signal.new(quit_and_exit,SIGTERM):start(loop)  
-        if listen_io then log('LISTEN');listen_io:start(loop) end
-        if reply_io then log('REPLY');reply_io:start(loop) end
+        if listen_io then 
+	   log('LISTEN');
+	   listen_io:start(loop) 
+	end
+        if reply_io then 
+	   log('REPLY');
+	   reply_io:start(loop) 
+	end
         if options.ios then
           for _,io in ipairs(options.ios) do
             io:start(loop)
@@ -432,6 +445,14 @@ broker =
        config.url_pool_port_min  or url_pool_default_port_max
     )
 
+   local zmq_init_msg = zmq.zmq_msg_t.init
+   local zmq_copy_msg = 
+      function(msg)
+	 local cmsg = zmq_init_msg()
+	 cmsg:copy(msg)
+	 return cmsg
+      end
+   
     self.new_replier = 
       function(self,url)
           local replier = {}
@@ -440,14 +461,18 @@ broker =
           replier.dealer:connect(url)
           local dealer = replier.dealer
           local router = self.router
+          local getopt = dealer.getopt
+          local recv_msg = dealer.recv_msg
+          local send_msg = router.send_msg
+          local part_msg = zmq_init_msg() 
           self.poller:add(
             replier.dealer,zmq.POLLIN,
             function()
-              local more
+              local more              
               repeat
-                local part = dealer:recv()
-                more = dealer:getopt(zRCVMORE) > 0
-                router:send(part,more and zSNDMORE or 0)
+                recv_msg(dealer,part_msg)
+                more = getopt(dealer,zRCVMORE) > 0
+                send_msg(router,part_msg,more and zSNDMORE or 0)
               until not more
             end) 
           self.repliers[url] = replier
@@ -563,14 +588,6 @@ broker =
         end
      end
 
-   local zmq_init_msg = zmq.zmq_msg_t.init
-   local zmq_copy_msg = 
-      function(msg)
-	 local cmsg = zmq_init_msg()
-	 cmsg:copy(msg)
-	 return cmsg
-      end
-   
    local xid_msg = zmq_init_msg()
    local empty_msg = zmq_init_msg()
    local method_msg = zmq_init_msg()
@@ -578,30 +595,33 @@ broker =
 
    local send_error = 
       function(router,xid_msg,err_id,err)
+        local send = router.send
 	   router:send_msg(xid_msg,zSNDMORE)
-	   router:send('',zSNDMORE)
-	   router:send('',zSNDMORE)
-	   router:send(err_id,zSNDMORE)        
-	   router:send(err,0)                	   
+	   send(router,'',zSNDMORE)
+	   send(router,'',zSNDMORE)
+	   send(router,err_id,zSNDMORE)        
+	   send(router,err,0)                	   
 	end
 
     local forward_rpc =
       function()
 	 local router = self.router
-	 router:recv_msg(xid_msg)
-	 if router:getopt(zRCVMORE) < 1 then
+        local recv_msg = router.recv_msg
+        local getopt = router.getopt
+	 recv_msg(router,xid_msg)
+	 if getopt(router,zRCVMORE) < 1 then
 	    send_error(router,xid_msg:data(),'ERR_INVALID_MESSAGE','NO_EMPTY_PART')
 	 end
-	 router:recv_msg(empty_msg)
+	 recv_msg(router,empty_msg)
 	 assert(empty_msg:size()==0)
-	 if router:getopt(zRCVMORE) < 1 then
+	 if getopt(router,zRCVMORE) < 1 then
 	    send_error(router,xid_msg:data(),'ERR_INVALID_MESSAGE','NO_METHOD')
 	 end
-        router:recv_msg(method_msg)
-        if router:getopt(zRCVMORE) < 1 then
+        recv_msg(router,method_msg)
+        if getopt(router,zRCVMORE) < 1 then
 	   send_error(router,xid_msg:data(),'ERR_INVALID_MESSAGE','NO_ARG')
 	end
-        router:recv_msg(arg_msg)        
+        recv_msg(router,arg_msg)        
 --        log('rpc',method,arg)
         local dealer,matched_exp
         local err,err_id
@@ -628,12 +648,13 @@ broker =
         end
         if err then
 	   send_error(router,xid_msg,err_id,err)
-        else          
-          dealer:send_msg(xid_msg,zSNDMORE)
-          dealer:send_msg(empty_msg,zSNDMORE)
+         else
+           local send_msg = dealer.send_msg
+          send_msg(dealer,xid_msg,zSNDMORE)
+          send_msg(dealer,empty_msg,zSNDMORE)
           dealer:send(matched_exp,zSNDMORE)
-          dealer:send_msg(method_msg,zSNDMORE)
-          dealer:send_msg(arg_msg,0)          
+          send_msg(dealer,method_msg,zSNDMORE)
+          send_msg(dealer,arg_msg,0)          
         end
       end  
 
@@ -643,15 +664,18 @@ broker =
       function()
 	 local notify = self.notify
 	 local todos = {}
+         local recv_msg = notify.recv_msg
+         local getopt = notify.getopt
+         local listeners = self.listeners
 	 repeat
-	    notify:recv_msg(topic_msg)	   
-	    if notify:getopt(zRCVMORE) < 1 then
+	    recv_msg(notify,topic_msg)	   
+	    if getopt(notify,zRCVMORE) < 1 then
 	       log('notify','invalid message','no_data')
 	       break
 	    end
 	    local topic = tostring(topic_msg)
-	    notify:recv_msg(data_msg)
-	    for url,listener in pairs(self.listeners) do
+	    recv_msg(notify,data_msg)
+	    for url,listener in pairs(listeners) do
 	       for _,exp in pairs(listener.exps) do
 		  log('notify','trying',topic)
 		  if topic:match(exp) then
@@ -659,25 +683,26 @@ broker =
 			todos[listener] = {}
 		     end
 		     tinsert(todos[listener],{
-				topic_msg = zmq_copy_msg(topic_msg),
-				data_msg = zmq_copy_msg(data_msg),
-				exp = exp
+                               exp,
+                               zmq_copy_msg(topic_msg),
+                               zmq_copy_msg(data_msg),
 			     })
 		     log('notify','matched',topic,exp,url)		     		    
 		  end
 	       end
 	    end
-	 until notify:getopt(zRCVMORE) <= 0
+	 until getopt(notify,zRCVMORE) <= 0
 	 for listener,notifications in pairs(todos) do
 	    local len = #notifications
+            local lpush = listener.push
 	    for i,notification in ipairs(notifications) do
 	       local option = zSNDMORE
 	       if i == len then
 		  option = 0
 	       end
-	       listener.push:send(notification.exp,zSNDMORE)
-	       listener.push:send_msg(notification.topic_msg,zSNDMORE)
-	       listener.push:send_msg(notification.data_msg,option)
+	       lpush:send(notification[1],zSNDMORE)
+	       lpush:send_msg(notification[2],zSNDMORE)
+	       lpush:send_msg(notification[3],option)
 	    end
 	 end
       end
