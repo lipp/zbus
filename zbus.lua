@@ -15,12 +15,12 @@ local require = require
 local setmetatable = setmetatable
 local cjson = require'cjson'
 local os = require'os'
-local print = print
 local tconcat = table.concat
 local tinsert = table.insert
 
 module('zbus')
-local zcontext = zmq.init(1)
+
+-- default configuration
 local default_broker_port = 33329
 local default_rpc_port = 33325
 local default_notify_port = 33328
@@ -28,6 +28,8 @@ local default_ip = '127.0.0.1'
 local url_pool_default_interface = '127.0.0.1'
 local url_pool_default_port_min = 33430
 local url_pool_default_port_max = 33500
+
+local zcontext = zmq.init(1)
 local zIN = zmq.POLLIN
 local zINOUT = zmq.POLLIN + zmq.POLLOUT
 local zSNDMORE = zmq.SNDMORE
@@ -50,8 +52,6 @@ local default_make_zerr =
     return 'zbus error:'..msg..'('..code..')'
   end
 
-
-local log
 member = 
   function(config)
     local config = config or {}
@@ -242,8 +242,10 @@ member =
         if self.broker_reg then 
 	   self.broker_reg:close() 
 	end
-        if self.rpc_sock then 
-	   self.rpc_sock:close() 
+        if self.rpc_socks then 
+	   for _,sock in pairs(self.rpc_socks) do
+	      sock:close() 
+	   end
 	end
       end
 
@@ -287,28 +289,37 @@ member =
           end,
           self.listen:getopt(zmq.FD),
           ev.READ)     
-      end
+     end
 
-    self.call = 
-      function(self,method,...)
-        if not self.rpc_sock then
-          self.rpc_sock = zcontext:socket(zmq.REQ)
-          local rpc_url = 'tcp://'..(config.rpc_ip or default_ip)..':'..(config.rpc_port or default_rpc_port)
-          self.rpc_sock:connect(rpc_url)
-        end
-        self.rpc_sock:send(method,zSNDMORE)
-        self.rpc_sock:send(self.serialize_args(...))
-        local resp = self.rpc_sock:recv()
-        if self.rpc_sock:getopt(zRCVMORE) > 0 then
-          local err = self.rpc_sock:recv()
-          if self.rpc_sock:getopt(zRCVMORE) > 0 then            
-            local msg = self.rpc_sock:recv()
+
+
+   self.rpc_socks = {}
+   self.rpc_local_url = 'tcp://'..(config.rpc_ip or default_ip)..':'..(config.rpc_port or default_rpc_port)
+   self.call_url = 
+      function(self,url,method,...)
+	 if not self.rpc_socks[url] then
+	    self.rpc_socks[url] = zcontext:socket(zmq.REQ)
+	    self.rpc_socks[url]:connect(url)
+	 end
+	 local sock = self.rpc_socks[url]
+	 sock:send(method,zSNDMORE)
+	 sock:send(self.serialize_args(...))
+        local resp = sock:recv()
+        if sock:getopt(zRCVMORE) > 0 then
+          local err = sock:recv()
+          if sock:getopt(zRCVMORE) > 0 then            
+            local msg = sock:recv()
             error(self.make_zerr(err,msg),2)
           else
             error(self.unserialize_err(err),2)
           end
         end
         return self.unserialize_result(resp)
+     end
+
+   self.call = 
+      function(self,method,...)
+	 return self:call_url(self.rpc_local_url,method,...)
       end
 
     self.loop = 
@@ -552,34 +563,49 @@ broker =
         end
      end
 
+   local zmq_init_msg = zmq.zmq_msg_t.init
+   local zmq_copy_msg = 
+      function(msg)
+	 local cmsg = zmq_init_msg()
+	 cmsg:copy(msg)
+	 return cmsg
+      end
+   
+   local xid_msg = zmq_init_msg()
+   local empty_msg = zmq_init_msg()
+   local method_msg = zmq_init_msg()
+   local arg_msg = zmq_init_msg()
+
    local send_error = 
-      function(router,xid,err_id,err)
-	   router:send(xid,zSNDMORE)
+      function(router,xid_msg,err_id,err)
+	   router:send_msg(xid_msg,zSNDMORE)
 	   router:send('',zSNDMORE)
 	   router:send('',zSNDMORE)
 	   router:send(err_id,zSNDMORE)        
 	   router:send(err,0)                	   
-      end
-    
+	end
+
     local forward_rpc =
       function()
-        local router = self.router
-        local xid = router:recv()	
+	 local router = self.router
+	 router:recv_msg(xid_msg)
+	 if router:getopt(zRCVMORE) < 1 then
+	    send_error(router,xid_msg:data(),'ERR_INVALID_MESSAGE','NO_EMPTY_PART')
+	 end
+	 router:recv_msg(empty_msg)
+	 assert(empty_msg:size()==0)
+	 if router:getopt(zRCVMORE) < 1 then
+	    send_error(router,xid_msg:data(),'ERR_INVALID_MESSAGE','NO_METHOD')
+	 end
+        router:recv_msg(method_msg)
         if router:getopt(zRCVMORE) < 1 then
-	   send_error(router,xid,'ERR_INVALID_MESSAGE','NO_EMPTY_PART')
+	   send_error(router,xid_msg:data(),'ERR_INVALID_MESSAGE','NO_ARG')
 	end
-        assert(router:recv()=='')
-        if router:getopt(zRCVMORE) < 1 then
-	   send_error(router,xid,'ERR_INVALID_MESSAGE','NO_METHOD')
-	end
-        local method = router:recv()
-        if router:getopt(zRCVMORE) < 1 then
-	   send_error(router,xid,'ERR_INVALID_MESSAGE','NO_ARG')
-	end
-        local arg = router:recv()        
-        log('rpc',method,arg)
+        router:recv_msg(arg_msg)        
+--        log('rpc',method,arg)
         local dealer,matched_exp
         local err,err_id
+	local method = tostring(method_msg)
         for url,replier in pairs(self.repliers) do 
           for _,exp in pairs(replier.exps) do
             log('rpc','trying',exp,method)--,method:match(exp))
@@ -601,38 +627,40 @@ broker =
           err_id = 'ERR_NOMATCH'
         end
         if err then
-	   send_error(router,xid,err_id,err)
+	   send_error(router,xid_msg,err_id,err)
         else          
-          dealer:send(xid,zSNDMORE)
-          dealer:send('',zSNDMORE)
+          dealer:send_msg(xid_msg,zSNDMORE)
+          dealer:send_msg(empty_msg,zSNDMORE)
           dealer:send(matched_exp,zSNDMORE)
-          dealer:send(method,zSNDMORE)
-          dealer:send(arg,0)          
+          dealer:send_msg(method_msg,zSNDMORE)
+          dealer:send_msg(arg_msg,0)          
         end
       end  
 
+   local data_msg = zmq_init_msg()
+   local topic_msg = zmq_init_msg()
    local forward_notify = 
       function()
 	 local notify = self.notify
 	 local todos = {}
 	 repeat
-	    local topic = notify:recv()	   
+	    notify:recv_msg(topic_msg)	   
 	    if notify:getopt(zRCVMORE) < 1 then
 	       log('notify','invalid message','no_data')
 	       break
 	    end
-	    local data = notify:recv()
-	    log('notify',topic,data)
+	    local topic = tostring(topic_msg)
+	    notify:recv_msg(data_msg)
 	    for url,listener in pairs(self.listeners) do
 	       for _,exp in pairs(listener.exps) do
-		  log('notify','trying',topic,data)
+		  log('notify','trying',topic)
 		  if topic:match(exp) then
 		     if not todos[listener] then
 			todos[listener] = {}
 		     end
 		     tinsert(todos[listener],{
-				topic = topic,
-				data = data,
+				topic_msg = zmq_copy_msg(topic_msg),
+				data_msg = zmq_copy_msg(data_msg),
 				exp = exp
 			     })
 		     log('notify','matched',topic,exp,url)		     		    
@@ -648,8 +676,8 @@ broker =
 		  option = 0
 	       end
 	       listener.push:send(notification.exp,zSNDMORE)
-	       listener.push:send(notification.topic,zSNDMORE)
-	       listener.push:send(notification.data,option)
+	       listener.push:send_msg(notification.topic_msg,zSNDMORE)
+	       listener.push:send_msg(notification.data_msg,option)
 	    end
 	 end
       end
