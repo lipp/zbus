@@ -80,11 +80,12 @@ context = websockets.context{
          end,
       ['zbus-notification'] =
          function(ws)
+           local match_all = '.*'
 	    if clients == 0 then
 	       local notifications = {}
 	       log('listen to jet')
 	       zm:listen_add(
-		  '^.*:value$',
+		  match_all,
 		  function(topic,more,...)
 		     tinsert(notifications,{
 				topic = topic,
@@ -103,7 +104,7 @@ context = websockets.context{
 			   clients = clients - 1
 			   if clients == 0 then
 			      log('unlisten to jet')
-			      zm:listen_remove('^.*:value$')
+			      zm:listen_remove(match_all)
 			   end
 			end)
          end
