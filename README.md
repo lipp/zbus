@@ -16,10 +16,11 @@ If you are interested in a higher level bus, have a look at [jet](https://github
 
 ## Purpose
 
-zbus is designed to allow:
+zbus is designed with these goals:
 
 -    inter-process method calls
 -    inter-process notifications (publish/subscribe)
+-    efficiency (context switches, parsing)
 
 To achieve this, you have to become a zbus.member. zbus members can:
 
@@ -47,7 +48,9 @@ zbus defines a simple protocol based on zeromq **multi-part messages**.This allo
 -    exceptions
 -    notification-data
 
-The zbus protocol itself is aware of any dataformat but provides a default implementation for JSON which allows a very convient zbus.
+**The zbus protocol itself is aware of any dataformat** but provides a
+  default implementation for JSON which allows a very convient
+  (stand-alone) zbus.
 
 ## Build
 
@@ -271,7 +274,10 @@ A registration-request is a (zeromq) multi-part message with the following layou
                 <td>3</td><td>arg 2</td><td>^echo$</td>	
         </tr>
         <tr>
-                <td>n</td><td> ... </td><td> ... </td>	
+                <td>...</td><td> ... </td><td> ... </td>	
+        </tr>
+        <tr>
+                <td>arg n</td><td> ... </td><td> ... </td>	
         </tr>
 </table>
 The method part (first part) is required, all arguments to registration calls are further parts in the multi-part message.
@@ -378,34 +384,79 @@ In case of an **zbus/broker error**, it has **three** parts:
 </table>
 
 ### notification
-notifications can be send by a zbus member to the broker. The broker will forward them as notification-forward message to all subscribers. The notification message looks like:
+notifications can be send by a zbus member to the broker. The broker
+will forward them as notification-forward message to all
+subscribers. Multiple notifications can be sent as one 'physical'
+message by appending more Topic/Data tuples as message parts. There
+must be at least one Topic/Data tuple. The notification message looks like:
 <table border="1">      
        <tr>
 	<td>Message Part</td><td>Meaning</td><td>Example</td>
        </tr>                     
         <tr>		
-                <td>1</td><td>Topic URL</td><td>adc.status</td>
+                <td>1</td><td>Topic URL 1</td><td>adc.status</td>
         </tr>
         <tr>
-                <td>2</td><td>Data</td><td>overflow</td>	
+                <td>2</td><td>Data 1</td><td>overflow</td>	
+        </tr>
+        <tr>		
+                <td>3</td><td>Topic URL 2</td><td>adc.mode</td>
+        </tr>
+        <tr>
+                <td>4</td><td>Data 2 </td><td>slow</td>	
+        </tr>
+        <tr>
+                <td>...</td><td>...</td><td>...</td>	
+        </tr>
+        <tr>		
+                <td>n</td><td>Topic URL n</td><td>...</td>
+        </tr>
+        <tr>
+                <td>n+1</td><td>Data n </td><td>...</td>	
         </tr>
 </table>
 
 ### notification-forward
-listeners will receive notification-forward messages on the registered zmq socket. The notification message looks like:
+listeners will receive notification-forward messages on the registered
+zmq socket. There is one Expression/Topic/Data tuple for each
+forwarded notification. There must be at least one
+Expression/Topic/Data tuple inside the multipart message, but there
+may be more. The notification message looks like:
 <table border="1">      
        <tr>
 	<td>Message Part</td><td>Meaning</td><td>Example</td>
        </tr> 
         <tr>		
-                <td>1</td><td>Matched expression</td><td>^adc.*</td>
+                <td>1</td><td>Matched expression 1</td><td>^adc.*</td>
         </tr>                    
         <tr>		
-                <td>2</td><td>Topic URL</td><td>adc.status</td>
+                <td>2</td><td>Topic URL 1</td><td>adc.status</td>
         </tr>
         <tr>
-                <td>3</td><td>Data</td><td>overflow</td>	
+                <td>3</td><td>Data 1</td><td>overflow</td>	
         </tr>
+        <tr>		
+                <td>4</td><td>Matched expression 2</td><td>^adc.*</td>
+        </tr>                    
+        <tr>		
+                <td>5</td><td>Topic URL 2</td><td>adc.mode</td>
+        </tr>
+        <tr>
+                <td>6</td><td>Data 2</td><td>slow</td>	
+        </tr>
+        <tr>		
+                <td>...</td><td>...</td><td>...</td>
+        </tr>                    
+        <tr>		
+                <td>n</td><td>Matched expression n</td><td>...</td>
+        </tr>                    
+        <tr>		
+                <td>n+1</td><td>Topic URL n</td><td>...</td>
+        </tr>
+        <tr>
+                <td>n+2</td><td>Data n</td><td>...</td>	
+        </tr>
+
 </table>
 
 
