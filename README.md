@@ -277,7 +277,7 @@ A registration-request is a (zeromq) multi-part message with the following layou
                 <td>...</td><td> ... </td><td> ... </td>	
         </tr>
         <tr>
-                <td>n + 1</td>arg n<td> ... </td><td> ... </td>	
+                <td>n + 1</td><td> arg n </td><td> ... </td>	
         </tr>
 </table>
 The method part (first part) is required, all arguments to registration calls are further parts in the multi-part message.
