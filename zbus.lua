@@ -17,6 +17,7 @@ local cjson = require'cjson'
 local os = require'os'
 local tconcat = table.concat
 local tinsert = table.insert
+local smatch = string.match
 
 module('zbus')
 
@@ -58,13 +59,13 @@ member =
     local mname = config.name or 'unknown_member'
     local log = config.log or function() end
     local self = {}        
-    self.serialize_args = config.serialize_args or identity
-    self.serialize_result = config.serialize_result or identity
-    self.serialize_err = config.serialize_err or identity
-    self.make_zerr = config.make_zerr or default_make_zerr
-    self.unserialize_args = config.unserialize_args or identity
-    self.unserialize_result = config.unserialize_result or identity
-    self.unserialize_err = config.unserialize_err or identity
+    local serialize_args = config.serialize_args or identity
+    local serialize_result = config.serialize_result or identity
+    local serialize_err = config.serialize_err or identity
+    local make_zerr = config.make_zerr or default_make_zerr
+    local unserialize_args = config.unserialize_args or identity
+    local unserialize_result = config.unserialize_result or identity
+    local unserialize_err = config.unserialize_err or identity
     self.broker_call = 
       function(self,args)
         if not self.broker_reg then
@@ -158,12 +159,12 @@ member =
 --        log('handle_req',expr,method,arguments,'async',self.reply_callbacks[expr].async)
         local on_success = 
           function(...)
-            send(rep,self.serialize_result(...))  
+            send(rep,serialize_result(...))  
           end
         local on_error = 
           function(err)
             send(rep,'',zSNDMORE)          
-            send(rep,self.serialize_err(err))
+            send(rep,serialize_err(err))
           end        
         local result        
         if self.reply_callbacks[expr].async then
@@ -171,11 +172,11 @@ member =
                           method,
                           on_success,
                           on_error,
-                          self.unserialize_args(arguments))}
+                          unserialize_args(arguments))}
         else
           result = {pcall(self.reply_callbacks[expr].func,
                           method,
-                          self.unserialize_args(arguments))}
+                          unserialize_args(arguments))}
           if result[1] then 
             on_success(unpack(result,2))
             return
@@ -199,7 +200,7 @@ member =
 	    local arguments = recv(listen)
 --	    assert(self.listen_callbacks[expr])
 	    more = listen:getopt(zRCVMORE) > 0
-	    self.listen_callbacks[expr](topic,more,self.unserialize_args(arguments))
+	    self.listen_callbacks[expr](topic,more,unserialize_args(arguments))
 	 until not more
       end
    
@@ -223,7 +224,7 @@ member =
 	 end
          local send = nsock.send
 	 send(nsock,topic,zSNDMORE)
-	 send(nsock,self.serialize_args(...),option)
+	 send(nsock,serialize_args(...),option)
       end
     
    
@@ -310,18 +311,18 @@ member =
 	 end
 	 local sock = self.rpc_socks[url]
 	 sock:send(method,zSNDMORE)
-	 sock:send(self.serialize_args(...))
+	 sock:send(serialize_args(...))
         local resp = sock:recv()
         if sock:getopt(zRCVMORE) > 0 then
           local err = sock:recv()
           if sock:getopt(zRCVMORE) > 0 then            
             local msg = sock:recv()
-            error(self.make_zerr(err,msg),2)
+            error(make_zerr(err,msg),2)
           else
-            error(self.unserialize_err(err),2)
+            error(unserialize_err(err),2)
           end
         end
-        return self.unserialize_result(resp)
+        return unserialize_result(resp)
      end
 
    self.call = 
@@ -603,25 +604,25 @@ broker =
 	   send(router,err,0)                	   
 	end
 
+    local router = self.router
+    local rrecv_msg = router.recv_msg
+    local rgetopt = router.getopt
     local forward_rpc =
       function()
-	 local router = self.router
-        local recv_msg = router.recv_msg
-        local getopt = router.getopt
-	 recv_msg(router,xid_msg)
-	 if getopt(router,zRCVMORE) < 1 then
+	 rrecv_msg(router,xid_msg)
+	 if rgetopt(router,zRCVMORE) < 1 then
 	    send_error(router,xid_msg:data(),'ERR_INVALID_MESSAGE','NO_EMPTY_PART')
 	 end
-	 recv_msg(router,empty_msg)
+	 rrecv_msg(router,empty_msg)
 	 assert(empty_msg:size()==0)
-	 if getopt(router,zRCVMORE) < 1 then
+	 if rgetopt(router,zRCVMORE) < 1 then
 	    send_error(router,xid_msg:data(),'ERR_INVALID_MESSAGE','NO_METHOD')
 	 end
-        recv_msg(router,method_msg)
-        if getopt(router,zRCVMORE) < 1 then
+        rrecv_msg(router,method_msg)
+        if rgetopt(router,zRCVMORE) < 1 then
 	   send_error(router,xid_msg:data(),'ERR_INVALID_MESSAGE','NO_ARG')
 	end
-        recv_msg(router,arg_msg)        
+        rrecv_msg(router,arg_msg)        
 --        log('rpc',method,arg)
         local dealer,matched_exp
         local err,err_id
@@ -629,7 +630,7 @@ broker =
         for url,replier in pairs(self.repliers) do 
           for _,exp in pairs(replier.exps) do
             log('rpc','trying',exp,method)--,method:match(exp))
-            if method:match(exp) then
+            if smatch(method,exp) then
               log('rpc','matched',method,exp,url)
               if dealer then
                 log('rpc','method ambiguous',method,exp,url)
@@ -660,25 +661,25 @@ broker =
 
    local data_msg = zmq_init_msg()
    local topic_msg = zmq_init_msg()
+   local notify = self.notify
+   local nrecv_msg = notify.recv_msg
+   local ngetopt = notify.getopt
+   local listeners = self.listeners   
    local forward_notify = 
       function()
-	 local notify = self.notify
 	 local todos = {}
-         local recv_msg = notify.recv_msg
-         local getopt = notify.getopt
-         local listeners = self.listeners
 	 repeat
-	    recv_msg(notify,topic_msg)	   
-	    if getopt(notify,zRCVMORE) < 1 then
+	    nrecv_msg(notify,topic_msg)	   
+	    if ngetopt(notify,zRCVMORE) < 1 then
 	       log('notify','invalid message','no_data')
 	       break
 	    end
 	    local topic = tostring(topic_msg)
-	    recv_msg(notify,data_msg)
+	    nrecv_msg(notify,data_msg)
 	    for url,listener in pairs(listeners) do
 	       for _,exp in pairs(listener.exps) do
 		  log('notify','trying',topic)
-		  if topic:match(exp) then
+		  if smatch(topic,exp) then
 		     if not todos[listener] then
 			todos[listener] = {}
 		     end
@@ -691,7 +692,7 @@ broker =
 		  end
 	       end
 	    end
-	 until getopt(notify,zRCVMORE) <= 0
+	 until ngetopt(notify,zRCVMORE) <= 0
 	 for listener,notifications in pairs(todos) do
 	    local len = #notifications
             local lpush = listener.push
@@ -714,13 +715,13 @@ broker =
       function(self)
         self.poller:add(
           self.reg,zmq.POLLIN,
-          dispatch_reg)
+          self.dispatch_reg)
         self.poller:add(
           self.router,zmq.POLLIN,
-          forward_rpc)
+          self.forward_rpc)
         self.poller:add(
           self.notify,zmq.POLLIN,
-          forward_notify)
+          self.forward_notify)
         self.poller:start()
       end
     return self
