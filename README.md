@@ -235,7 +235,7 @@ zbus members must register routes to subscribe to notifications or to provide se
  socket. Tells the broker to forward incoming _method-call-request_ to
  the specified url as _method-call-request-forward_ if they match the
  expression. The replier must return a _method-call-response_.
- + params: expression,url
+ + params: url,expression
 - **replier_remove** removes an expression to the specified replier
  socket. Stops the broker from forwarding incoming _method-call-request_
  to the specified url.
@@ -247,7 +247,7 @@ zbus members must register routes to subscribe to notifications or to provide se
  + params: url
 - **listen_add** adds an expression to the specified listen socket. Incoming _notifications_ are
  forwarded as _notification-forward_ to this socket if they match the expression.
- + params: expression,url
+ + params: url,expression
 - **listen_remove** removes an expression to the specified listen socket
  + params: url,expression
 
