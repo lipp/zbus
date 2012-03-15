@@ -56,7 +56,7 @@ local default_make_zerr =
 member = 
   function(config)
     local config = config or {}
-    local mname = config.name or 'unknown_member'
+    local reg_name = config.name or 'default_zbus_member'
     local log = config.log or function() end
     local self = {}        
     local serialize_args = config.serialize_args or identity
@@ -66,6 +66,7 @@ member =
     local unserialize_args = config.unserialize_args or identity
     local unserialize_result = config.unserialize_result or identity
     local unserialize_err = config.unserialize_err or identity
+	local smatch = smatch
     self.broker_call = 
       function(self,args)
         if not self.broker_reg then
@@ -76,7 +77,7 @@ member =
         for i,arg in ipairs(args) do          
             self.broker_reg:send(arg,zSNDMORE)
         end
-        self.broker_reg:send(mname)
+        self.broker_reg:send(reg_name)
         local resp = self.broker_reg:recv()
         if self.broker_reg:getopt(zRCVMORE) > 0 then
 	   error('broker call "'..tconcat(args,',')..'" failed:'..self.broker_reg:recv())
@@ -101,7 +102,7 @@ member =
         if not self.listen then
           self:listen_init()
         end
-        self:broker_call{'listen_add',expr,self.listen_url}
+        self:broker_call{'listen_add',self.listen_url,expr}
         self.listen_callbacks[expr] = func
       end
     self.listen_remove = 
@@ -146,16 +147,21 @@ member =
           self.reply_callbacks[expr] = nil
         end
       end
+    local rep
+    local recv
+    local send
+    local reply_callbacks
     self.handle_req = 
       function()        
-        log('handle_req')
-        local rep = self.rep
-        local recv = rep.recv
-        local send = rep.send
+        --log('handle_req')
+        rep = rep or self.rep
+        recv = recv or rep.recv
+        send = send or rep.send
+        reply_callbacks = reply_callbacks or self.reply_callbacks
         local expr = recv(rep)
         local method = recv(rep)
-        local arguments = recv(rep)
-	assert(self.reply_callbacks[expr])
+        local arguments = recv(rep)        
+--	assert(reply_callbacks[expr])
 --        log('handle_req',expr,method,arguments,'async',self.reply_callbacks[expr].async)
         local on_success = 
           function(...)
@@ -167,14 +173,14 @@ member =
             send(rep,serialize_err(err))
           end        
         local result        
-        if self.reply_callbacks[expr].async then
-          result = {pcall(self.reply_callbacks[expr].func,
+        if reply_callbacks[expr].async then
+          result = {pcall(reply_callbacks[expr].func,
                           method,
                           on_success,
                           on_error,
                           unserialize_args(arguments))}
         else
-          result = {pcall(self.reply_callbacks[expr].func,
+          result = {pcall(reply_callbacks[expr].func,
                           method,
                           unserialize_args(arguments))}
           if result[1] then 
@@ -189,18 +195,28 @@ member =
           on_error(result[2])
         end                
       end
+    local listen
     self.handle_notify = 
       function()
-	 local listen = self.listen
-        local recv = listen.recv
+        listen = listen or self.listen
+        recv = recv or listen.recv
+        getopt = getopt or listen.getopt
+        local listen_callbacks
         local more
 	 repeat 
 	    local expr = recv(listen)
 	    local topic = recv(listen)
 	    local arguments = recv(listen)
---	    assert(self.listen_callbacks[expr])
-	    more = listen:getopt(zRCVMORE) > 0
-	    self.listen_callbacks[expr](topic,more,unserialize_args(arguments))
+            listen_callbacks = listen_callbacks or self.listen_callbacks
+	    more = getopt(listen,zRCVMORE) > 0
+            local cb = listen_callbacks[expr]
+            -- could be removed in the meantime
+            if cb then
+              local ok,err = pcall(cb,topic,more,unserialize_args(arguments))
+              if not ok then
+                log('handle_notify callback failed',expr,err)
+              end
+            end
 	 until not more
       end
    
@@ -222,7 +238,7 @@ member =
 	    self.notify_sock:connect(notify_url)    
             nsock = self.notify_sock
 	 end
-         local send = nsock.send
+         send = send or nsock.send
 	 send(nsock,topic,zSNDMORE)
 	 send(nsock,serialize_args(...),option)
       end
@@ -445,6 +461,7 @@ broker =
        config.url_pool_port_min or url_pool_default_port_min,
        config.url_pool_port_min  or url_pool_default_port_max
     )
+	local smatch = smatch
 
    local zmq_init_msg = zmq.zmq_msg_t.init
    local zmq_copy_msg = 
@@ -454,6 +471,11 @@ broker =
 	 return cmsg
       end
    
+    local send = self.router.send 
+    local recv = self.router.recv
+    local send_msg = self.router.send_msg
+    local recv_msg = self.router.recv_msg
+    local getopt = self.router.getopt
     self.new_replier = 
       function(self,url)
           local replier = {}
@@ -462,9 +484,6 @@ broker =
           replier.dealer:connect(url)
           local dealer = replier.dealer
           local router = self.router
-          local getopt = dealer.getopt
-          local recv_msg = dealer.recv_msg
-          local send_msg = router.send_msg
           local part_msg = zmq_init_msg() 
           self.poller:add(
             replier.dealer,zmq.POLLIN,
@@ -525,8 +544,12 @@ broker =
           end
         end,
       replier_add = 
-        function(exp,replier_url)
-          table.insert(self.repliers[replier_url].exps,exp)          
+        function(replier_url,exp)
+          if exp and #exp>0 and replier_url and #replier_url>0 then
+            table.insert(self.repliers[replier_url].exps,exp)          
+          else
+            error('invalid params')
+          end
         end,
       replier_remove = 
         function(replier_url,exp)
@@ -553,8 +576,12 @@ broker =
           end
         end,
       listen_add = 
-        function(exp,listen_url)
-          table.insert(self.listeners[listen_url].exps,exp)          
+        function(listen_url,exp)
+          if exp and #exp>0 and listen_url and #listen_url>0 then            
+            table.insert(self.listeners[listen_url].exps,exp)          
+          else
+            error('invalid params')
+          end
         end,
       listen_remove = 
         function(listen_url,exp)
@@ -596,8 +623,7 @@ broker =
 
    local send_error = 
       function(router,xid_msg,err_id,err)
-        local send = router.send
-	   router:send_msg(xid_msg,zSNDMORE)
+	   send_msg(router,xid_msg,zSNDMORE)
 	   send(router,'',zSNDMORE)
 	   send(router,'',zSNDMORE)
 	   send(router,err_id,zSNDMORE)        
@@ -605,24 +631,22 @@ broker =
 	end
 
     local router = self.router
-    local rrecv_msg = router.recv_msg
-    local rgetopt = router.getopt
     local forward_rpc =
       function()
-	 rrecv_msg(router,xid_msg)
-	 if rgetopt(router,zRCVMORE) < 1 then
+	 recv_msg(router,xid_msg)
+	 if getopt(router,zRCVMORE) < 1 then
 	    send_error(router,xid_msg:data(),'ERR_INVALID_MESSAGE','NO_EMPTY_PART')
 	 end
-	 rrecv_msg(router,empty_msg)
+	 recv_msg(router,empty_msg)
 	 assert(empty_msg:size()==0)
-	 if rgetopt(router,zRCVMORE) < 1 then
+	 if getopt(router,zRCVMORE) < 1 then
 	    send_error(router,xid_msg:data(),'ERR_INVALID_MESSAGE','NO_METHOD')
 	 end
-        rrecv_msg(router,method_msg)
-        if rgetopt(router,zRCVMORE) < 1 then
+        recv_msg(router,method_msg)
+        if getopt(router,zRCVMORE) < 1 then
 	   send_error(router,xid_msg:data(),'ERR_INVALID_MESSAGE','NO_ARG')
 	end
-        rrecv_msg(router,arg_msg)        
+        recv_msg(router,arg_msg)        
 --        log('rpc',method,arg)
         local dealer,matched_exp
         local err,err_id
@@ -650,10 +674,9 @@ broker =
         if err then
 	   send_error(router,xid_msg,err_id,err)
          else
-           local send_msg = dealer.send_msg
           send_msg(dealer,xid_msg,zSNDMORE)
           send_msg(dealer,empty_msg,zSNDMORE)
-          dealer:send(matched_exp,zSNDMORE)
+          send(dealer,matched_exp,zSNDMORE)
           send_msg(dealer,method_msg,zSNDMORE)
           send_msg(dealer,arg_msg,0)          
         end
@@ -662,20 +685,18 @@ broker =
    local data_msg = zmq_init_msg()
    local topic_msg = zmq_init_msg()
    local notify = self.notify
-   local nrecv_msg = notify.recv_msg
-   local ngetopt = notify.getopt
    local listeners = self.listeners   
    local forward_notify = 
       function()
 	 local todos = {}
 	 repeat
-	    nrecv_msg(notify,topic_msg)	   
-	    if ngetopt(notify,zRCVMORE) < 1 then
+	    recv_msg(notify,topic_msg)	   
+	    if getopt(notify,zRCVMORE) < 1 then
 	       log('notify','invalid message','no_data')
 	       break
 	    end
 	    local topic = tostring(topic_msg)
-	    nrecv_msg(notify,data_msg)
+	    recv_msg(notify,data_msg)
 	    for url,listener in pairs(listeners) do
 	       for _,exp in pairs(listener.exps) do
 		  log('notify','trying',topic)
@@ -692,7 +713,7 @@ broker =
 		  end
 	       end
 	    end
-	 until ngetopt(notify,zRCVMORE) <= 0
+	 until getopt(notify,zRCVMORE) <= 0
 	 for listener,notifications in pairs(todos) do
 	    local len = #notifications
             local lpush = listener.push
@@ -701,9 +722,9 @@ broker =
 	       if i == len then
 		  option = 0
 	       end
-	       lpush:send(notification[1],zSNDMORE)
-	       lpush:send_msg(notification[2],zSNDMORE)
-	       lpush:send_msg(notification[3],option)
+	       send(lpush,notification[1],zSNDMORE)
+	       send_msg(lpush,notification[2],zSNDMORE)
+	       send_msg(lpush,notification[3],option)
 	    end
 	 end
       end
