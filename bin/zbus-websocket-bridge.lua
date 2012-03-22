@@ -1,9 +1,9 @@
+#!/usr/bin/env lua
 local cjson = require'cjson'
 local tinsert = table.insert
 local ev = require'ev'
 local websockets = require'websockets'
 local zbus = require'zbus'
-local file_dir = arg[1] or './'
 local ws_ios = {}
 local context = nil
 local log = 
@@ -39,27 +39,6 @@ context = websockets.context{
       function(fd)
 	 ws_ios[fd]:stop(ev.Loop.default)
 	 ws_ios[fd] = nil
-      end,
-   on_http = 
-      function(ws,uri)
-	 if uri == '/favicon.ico' then
-	    ws:serve_http_file(file_dir..'favicon.ico','image/x-icon')
-	 elseif uri == '/' or uri == '/index.html' then
-	    ws:serve_http_file(file_dir..'index.html','text/html')
-	 else
-	    local content_type
-	    if uri:match('css$') then
-	       content_type = 'text/css'
-	    elseif uri:match('less$') then
-	       content_type = 'text/less'
-	    elseif uri:match('html$') then
-	       content_type = 'text/html'
-	    elseif uri:match('js$') then
-	       content_type = 'text/javascript'
-	    end
-	    assert(content_type,'unknown content type:'..uri)
-	    ws:serve_http_file(file_dir..uri,content_type)
-	 end
       end,
    protocols = {
       ['zbus-call'] =

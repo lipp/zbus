@@ -25,7 +25,8 @@ build = {
          ["zbus.config"] = 'zbus/config.lua',  
       },
       bin = {
-         'zbusd.lua'
+         ['zbusd.lua'] = 'bin/zbusd.lua',
+         ['zbus-websocket-bridge.lua'] = 'bin/zbus-websocket-bridge.lua'
       }
    }
 }
