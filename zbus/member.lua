@@ -373,40 +373,6 @@ new =
       return self
    end
 
-local url_pool = 
-   function(interface,port_min,port_max)
-      local self = {}
-      self.free = {}
-      self.used = {}
-      self.url_base = 'tcp://'..interface..':'
-      for port = port_min,port_max do       
-         self.free[self.url_base..port] = true
-      end
-      self.get = 
-         function(self)
-            -- get first table element
-            local url = pairs(self.free)(self.free)
-            if url then
-               self.free[url] = nil
-               self.used[url] = true
-               return url
-            else
-               error('url pool empty')
-            end
-         end
-      self.release =
-         function(self,url)	 
-            if self.used[url] then
-               self.used[url] = nil
-               self.free[url] = true
-               return true
-            else
-               error('invalid url')
-            end
-         end
-      return self
-   end
-
 return {
    new = new
 }
