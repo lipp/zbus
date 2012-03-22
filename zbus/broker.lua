@@ -1,5 +1,5 @@
 local zmq = require'zmq'
-local zpoller = require'zmq.poller'
+local ev = require'ev'
 local assert = assert
 local table = table
 local pairs = pairs
@@ -16,7 +16,8 @@ local os = require'os'
 local tconcat = table.concat
 local tinsert = table.insert
 local smatch = string.match
-local config = require'zbus.config'
+local zconfig = require'zbus.config'
+local zutil = require'zbus.util'
 
 module('zbus.broker')
 
@@ -36,6 +37,7 @@ local url_pool =
       for port = port_min,port_max do       
          self.free[self.url_base..port] = true
       end
+
       self.get = 
          function(self)
             -- get first table element
@@ -48,6 +50,7 @@ local url_pool =
                error('url pool empty')
             end
          end
+
       self.release =
          function(self,url)	 
             if self.used[url] then
@@ -58,14 +61,16 @@ local url_pool =
                error('invalid url')
             end
          end
+
       return self
    end
 
 new = 
    function(user)
       local self = {}
-      config = config.broker(user)
+      local config = zconfig.broker(user)
       local log = config.log 
+      local loop = ev.Loop.default
       self.reg = zcontext:socket(zmq.REP)
       self.reg:bind('tcp://*:'..config.broker.registry_port)
       self.router = zcontext:socket(zmq.XREP)
@@ -74,7 +79,6 @@ new =
       self.notify = zcontext:socket(zmq.PULL)
       local notify_url = 'tcp://*:'..config.broker.notify_port
       self.notify:bind(notify_url)
-      self.poller = config.poller or zpoller(2)
       self.repliers = {}
       self.listeners = {}
       self.url_pool = url_pool(
@@ -82,6 +86,7 @@ new =
          config.url_pool.port_min,
          config.url_pool.port_max
       )
+
       local smatch = smatch
       local zmq_init_msg = zmq.zmq_msg_t.init
       local zmq_copy_msg = 
@@ -96,6 +101,7 @@ new =
       local send_msg = self.router.send_msg
       local recv_msg = self.router.recv_msg
       local getopt = self.router.getopt
+
       self.new_replier = 
          function(self,url)
             local replier = {}
@@ -104,18 +110,18 @@ new =
             replier.dealer:connect(url)
             local dealer = replier.dealer
             local router = self.router
-            local part_msg = zmq_init_msg() 
-            self.poller:add(
-               replier.dealer,zmq.POLLIN,
+            local part_msg = zmq_init_msg()
+            replier.io = zutil.zmq_read_io(
+               dealer,
                function()
                   local more              
                   repeat
                      recv_msg(dealer,part_msg)
                      more = getopt(dealer,zRCVMORE) > 0
                      send_msg(router,part_msg,more and zSNDMORE or 0)
-                     print('asdd')
                   until not more
                end) 
+            replier.io:start(loop)
             self.repliers[url] = replier
          end
 
@@ -128,15 +134,17 @@ new =
             self.listeners[url] = listener
          end
 
-      self.reg_calls = {
+      self.registry_calls = {
          url_get = 
             function()
                return self.url_pool:get()
             end,
+
          url_release = 
             function(url)
                self.url_pool:release(url)
             end,
+
          replier_open = 
             function(replier_url)
                if not replier_url then
@@ -147,6 +155,7 @@ new =
                end 
                self:new_replier(replier_url)
             end,
+
          replier_close = 
             function(replier_url)
                if not replier_url then
@@ -157,7 +166,7 @@ new =
                end 
                local replier = self.repliers[replier_url]
                if replier then            
-                  self.poller:remove(replier.dealer)
+                  replier.io:stop(loop)
                   while true do 
                      local events = replier.dealer:getopt(zEVENTS)
                      if events ~= zIN and events ~= zINOUT then
@@ -174,6 +183,7 @@ new =
                   self.repliers[replier_url] = nil
                end
             end,
+
          replier_add = 
             function(replier_url,exp)
                if not replier_url or not exp then
@@ -184,6 +194,7 @@ new =
                end
                table.insert(self.repliers[replier_url].exps,exp)              
             end,
+
          replier_remove = 
             function(replier_url,exp)
                if not replier_url or not exp then
@@ -204,6 +215,7 @@ new =
                   error('unknown expression:',exp)
                end
             end,
+
          listen_open = 
             function(listen_url)
                if not listen_url then
@@ -214,6 +226,7 @@ new =
                end
                self:new_listener(listen_url)                    
             end,
+
          listen_close = 
             function(listen_url)
                if not listen_url then
@@ -225,6 +238,7 @@ new =
                self.listeners[listen_url].push:close()
                self.listeners[listen_url] = nil
             end,
+
          listen_add = 
             function(listen_url,exp)
                if not listen_url or not exp then
@@ -235,6 +249,7 @@ new =
                end
                table.insert(self.listeners[listen_url].exps,exp)          
             end,
+
          listen_remove = 
             function(listen_url,exp)
                if not listen_url or not exp then
@@ -252,7 +267,7 @@ new =
             end,
       }
 
-      local dispatch_reg = 
+      local dispatch_registry_call = 
          function()
             local cmd = self.reg:recv()
             local args = {}
@@ -261,7 +276,7 @@ new =
                table.insert(args,arg)
             end
             log('reg',cmd,unpack(args))
-            local ok,ret = pcall(self.reg_calls[cmd],unpack(args))        
+            local ok,ret = pcall(self.registry_calls[cmd],unpack(args))        
             log('reg','=>',ok,ret)        
             if not ok then
                self.reg:send('',zSNDMORE)
@@ -303,7 +318,6 @@ new =
                send_error(router,xid_msg:data(),'ERR_INVALID_MESSAGE','NO_ARG')
             end
             recv_msg(router,arg_msg)        
-            --        log('rpc',method,arg)
             local dealer,matched_exp
             local err,err_id
             local method = tostring(method_msg)
@@ -330,13 +344,11 @@ new =
             if err then
                send_error(router,xid_msg,err_id,err)
             else
-               log('BAEM')
                send_msg(dealer,xid_msg,zSNDMORE)
                send_msg(dealer,empty_msg,zSNDMORE)
                send(dealer,matched_exp,zSNDMORE)
                send_msg(dealer,method_msg,zSNDMORE)
                send_msg(dealer,arg_msg,0)          
-               log('BAEM BEAM')
             end
          end  
 
@@ -388,21 +400,19 @@ new =
          end
       
       self.forward_rpc = forward_rpc
-      self.dispatch_reg = dispatch_reg
+      self.dispatch_registry_call = dispatch_registry_call
       self.forward_notify = forward_notify
       self.loop = 
          function(self)
-            self.poller:add(
-               self.reg,zmq.POLLIN,
-               self.dispatch_reg)
-            self.poller:add(
-               self.router,zmq.POLLIN,
-               self.forward_rpc)
-            self.poller:add(
-               self.notify,zmq.POLLIN,
-               self.forward_notify)
-            self.poller:start()
+            local registry_io = zutil.zmq_read_io(self.reg,self.dispatch_registry_call)
+            local rpc_io = zutil.zmq_read_io(self.router,self.forward_rpc)
+            local notification_io = zutil.zmq_read_io(self.notify,self.forward_notify)
+            rpc_io:start(loop)
+            notification_io:start(loop)
+            registry_io:start(loop)
+            loop:loop()
          end
+      
       return self
    end
 

@@ -17,15 +17,13 @@ local tconcat = table.concat
 local tinsert = table.insert
 local smatch = string.match
 local zconfig = require'zbus.config'
+local zutil = require'zbus.util'
 
 module('zbus.member')
 
 local zcontext = zmq.init(1)
 local zSNDMORE = zmq.SNDMORE
 local zRCVMORE = zmq.RCVMORE
-local zEVENTS = zmq.EVENTS
-local zIN = zmq.POLLIN
-local zINOUT = zmq.POLLIN + zmq.POLLOUT
 
 new = 
    function(user)
@@ -40,22 +38,22 @@ new =
       local unserialize_result = config.unserialize.result
       local unserialize_err = config.unserialize.err
       local smatch = smatch
+
       self.broker_call = 
          function(self,args)
-            if not self.broker_reg then
-               self.broker_reg = zcontext:socket(zmq.REQ) 
+            if not self.registry then
+               self.registry = zcontext:socket(zmq.REQ) 
                local broker_url = 'tcp://'..config.broker.ip..':'..config.broker.registry_port
-               self.broker_reg:connect(broker_url)
+               self.registry:connect(broker_url)
             end
             for i,arg in ipairs(args) do          
-               self.broker_reg:send(arg,zSNDMORE)
+               self.registry:send(arg,zSNDMORE)
             end
-            self.broker_reg:send(config.name)
-            local resp = self.broker_reg:recv()
-            if self.broker_reg:getopt(zRCVMORE) > 0 then
-               error('broker call "'..tconcat(args,',')..'" failed:'..self.broker_reg:recv())
+            self.registry:send(config.name)
+            local resp = self.registry:recv()
+            if self.registry:getopt(zRCVMORE) > 0 then
+               error('broker call "'..tconcat(args,',')..'" failed:'..self.registry:recv())
             else
-               --          log('broker_call',unpack(args),'=>',resp)
                return resp
             end
          end
@@ -78,6 +76,7 @@ new =
             self:broker_call{'listen_add',self.listen_url,expr}
             self.listen_callbacks[expr] = func
          end
+
       self.listen_remove = 
          function(self,expr)
             if not self.listen then
@@ -110,6 +109,7 @@ new =
                async = async or false
             }
          end
+
       self.replier_remove = 
          function(self,expr)
             if not self.rep then
@@ -120,13 +120,14 @@ new =
                self.reply_callbacks[expr] = nil
             end
          end
+      
       local rep
       local recv
       local send
       local reply_callbacks
-      self.handle_req = 
+      
+      self.dispatch_request = 
          function()        
-            log('handle_req')
             rep = rep or self.rep
             recv = recv or rep.recv
             send = send or rep.send
@@ -134,8 +135,6 @@ new =
             local expr = recv(rep)
             local method = recv(rep)
             local arguments = recv(rep)        
-            --	assert(reply_callbacks[expr])
-            --        log('handle_req',expr,method,arguments,'async',self.reply_callbacks[expr].async)
             local on_success = 
                function(...)
                   send(rep,serialize_result(...))  
@@ -145,15 +144,17 @@ new =
                   send(rep,'',zSNDMORE)          
                   send(rep,serialize_err(err))
                end        
-            local result        
-            if reply_callbacks[expr].async then
-               result = {pcall(reply_callbacks[expr].func,
+            local result 
+            local cb = reply_callbacks[expr]
+            assert(cb)
+            if cb.async then
+               result = {pcall(cb.func,
                                method,
                                on_success,
                                on_error,
                                unserialize_args(arguments))}
             else
-               result = {pcall(reply_callbacks[expr].func,
+               result = {pcall(cb.func,
                                method,
                                unserialize_args(arguments))}
                if result[1] then 
@@ -162,14 +163,12 @@ new =
                end
             end
             if not result[1] then 
-               -- we assume that something terrible happened and
-               -- the reply_callback will not call on_error as expected
-               --          log('handle_req',method,'returned error',tostring(result[2]))
                on_error(result[2])
             end                
          end
+
       local listen
-      self.handle_notify = 
+      self.dispatch_notifications = 
          function()
             listen = listen or self.listen
             recv = recv or listen.recv
@@ -187,7 +186,7 @@ new =
                if cb then
                   local ok,err = pcall(cb,topic,more,unserialize_args(arguments))
                   if not ok then
-                     log('handle_notify callback failed',expr,err)
+                     log('dispatch_notifications callback failed',expr,err)
                   end
                end
             until not more
@@ -236,8 +235,8 @@ new =
                self.rep:close() 
                self:broker_call{'url_release',self.rep_url}
             end
-            if self.broker_reg then 
-               self.broker_reg:close() 
+            if self.registry then 
+               self.registry:close() 
             end
             if self.rpc_socks then 
                for _,sock in pairs(self.rpc_socks) do
@@ -249,43 +248,18 @@ new =
       self.reply_io = 
          function(self)
             if not self.rep then self:replier_init() end
-            return ev.IO.new(
-               function(loop,io)
-                  while true do
-                     local events = self.rep:getopt(zEVENTS)
-                     if events == zIN or events == zINOUT then      
-                        self.handle_req()
-                     else
-                        break
-                     end
-                  end
-               end,
-               self.rep:getopt(zmq.FD),
-               ev.READ)      
+            return zutil.zmq_read_io(self.rep,self.dispatch_request)
          end
       
       self.listen_io = 
          function(self)
             if not self.listen then self:listen_init() end
-            return ev.IO.new(
-               function(loop,io)
-                  while true do
-                     local events = self.listen:getopt(zEVENTS)
-                     if events == zIN or events == zINOUT then      
-                        self.handle_notify()
-                     else
-                        break
-                     end
-                  end
-               end,
-               self.listen:getopt(zmq.FD),
-               ev.READ)     
+            return zutil.zmq_read_io(self.listen,self.dispatch_notifications)
          end
-
-
 
       self.rpc_socks = {}
       self.rpc_local_url = 'tcp://'..config.broker.ip..':'..config.broker.rpc_port
+
       self.call_url = 
          function(self,url,method,...)
             if not self.rpc_socks[url] then
