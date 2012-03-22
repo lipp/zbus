@@ -11,23 +11,23 @@ module('zbus.json')
 local encode = cjson.encode
 local decode = cjson.decode
 
-serialize_array = 
+local serialize_array = 
   function(...)
     return encode{...}
   end
 
-unserialize_array = 
+local unserialize_array = 
   function(s)
     return unpack(decode(s))
   end
 
-serialize_args = serialize_array
-unserialize_args = unserialize_array
+local serialize_args = serialize_array
+local unserialize_args = unserialize_array
 
-serialize_result = serialize_array
-unserialize_result = unserialize_array
+local serialize_result = serialize_array
+local unserialize_result = unserialize_array
 
-serialize_err = 
+local serialize_err = 
   function(err)
     if type(err) == 'table' then
       assert(err.code and err.message)
@@ -41,7 +41,7 @@ serialize_err =
     end
   end
 
-serialize_zerr = 
+local serialize_zerr = 
   function(code,msg)
     return encode{
       message = 'Method not found',
@@ -49,12 +49,12 @@ serialize_zerr =
     }
   end
 
-unserialize_err = 
+local unserialize_err = 
   function(err)
     return decode(err)
   end
 
-make_zerr = 
+local make_err = 
   function(code,msg)
     return {
       code = -32603,
@@ -66,5 +66,19 @@ make_zerr =
         }
       }
     }
-  end
+ end
+
+return {
+   make_err = make_err,
+   serialize = {
+      result = serialize_result,
+      args = serialize_args,
+      err = serialize_err
+   },
+   unserialize = {
+      result = unserialize_result,
+      args = unserialize_args,
+      err = unserialize_err
+   },
+}
 

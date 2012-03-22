@@ -2,7 +2,7 @@
 local zbus = require'zbus'
 
 -- create a zbus member with the specified serializers
-local member = zbus.member()
+local member = zbus.member.new()
 
 -- call the service function
 for i=1,arg[1] or 1 do

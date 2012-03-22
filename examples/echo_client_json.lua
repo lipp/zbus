@@ -5,7 +5,7 @@ local zbus = require'zbus'
 local zbus_json_config = require'zbus.json'
 
 -- create a zbus member with the specified serializers
-local member = zbus.member(zbus_json_config)
+local member = zbus.member.new(zbus_json_config)
 -- call the service function and pass some arguments
 local res = {member:call(
 	'echo', -- the method url/name
