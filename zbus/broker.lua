@@ -96,11 +96,12 @@ new =
             return cmsg
          end
       
-      local send = self.router.send 
-      local recv = self.router.recv
-      local send_msg = self.router.send_msg
-      local recv_msg = self.router.recv_msg
-      local getopt = self.router.getopt
+      local zmethods = zutil.zmq_methods()
+      local send = zmethods.send 
+      local recv = zmethods.recv
+      local send_msg = zmethods.send_msg
+      local recv_msg = zmethods.recv_msg
+      local getopt = zmethods.getopt
 
       self.new_replier = 
          function(self,url)
@@ -297,59 +298,66 @@ new =
             send_msg(router,xid_msg,zSNDMORE)
             send(router,'',zSNDMORE)
             send(router,'',zSNDMORE)
-            send(router,err_id,zSNDMORE)        
-            send(router,err,0)                	   
+            send(router,err_id or 'UNKNOWN_ERROR',zSNDMORE)        
+            send(router,err or '',0)                	   
          end
 
       local router = self.router
       local forward_rpc =
          function()
-            recv_msg(router,xid_msg)
-            if getopt(router,zRCVMORE) < 1 then
-               send_error(router,xid_msg:data(),'ERR_INVALID_MESSAGE','NO_EMPTY_PART')
-            end
-            recv_msg(router,empty_msg)
-            assert(empty_msg:size()==0)
-            if getopt(router,zRCVMORE) < 1 then
-               send_error(router,xid_msg:data(),'ERR_INVALID_MESSAGE','NO_METHOD')
-            end
-            recv_msg(router,method_msg)
-            if getopt(router,zRCVMORE) < 1 then
-               send_error(router,xid_msg:data(),'ERR_INVALID_MESSAGE','NO_ARG')
-            end
-            recv_msg(router,arg_msg)        
-            local dealer,matched_exp
-            local err,err_id
-            local method = tostring(method_msg)
-            for url,replier in pairs(self.repliers) do 
-               for _,exp in pairs(replier.exps) do
-                  log('rpc','trying',exp,method)--,method:match(exp))
-                  if smatch(method,exp) then
-                     log('rpc','matched',method,exp,url)
-                     if dealer then
-                        log('rpc','method ambiguous',method,exp,url)
-                        err = 'method ambiguous: '..method
-                        err_id = 'ERR_AMBIGUOUS'
-                     else
-                        matched_exp = exp
-                        dealer = replier.dealer
+            local more
+            repeat 
+               recv_msg(router,xid_msg)
+               if getopt(router,zRCVMORE) < 1 then
+                  send_error(router,xid_msg:data(),'ERR_INVALID_MESSAGE','NO_EMPTY_PART')
+               end
+               recv_msg(router,empty_msg)
+               if empty_msg:size() > 0 then
+                  log('forward_rpc','protocol error','expected empty message part')
+                  send_error(router,xid_msg:data(),'ERR_INVALID_MESSAGE','EMPTY_PART_EXPECTED')
+               end
+               if getopt(router,zRCVMORE) < 1 then
+                  send_error(router,xid_msg:data(),'ERR_INVALID_MESSAGE','NO_METHOD')
+               end
+               recv_msg(router,method_msg)
+               if getopt(router,zRCVMORE) < 1 then
+                  send_error(router,xid_msg:data(),'ERR_INVALID_MESSAGE','NO_ARG')
+               end
+               recv_msg(router,arg_msg)        
+               local dealer,matched_exp
+               local err,err_id
+               local method = tostring(method_msg)
+               for url,replier in pairs(self.repliers) do 
+                  for _,exp in pairs(replier.exps) do
+                     log('rpc','trying',exp,method)--,method:match(exp))
+                     if smatch(method,exp) then
+                        log('rpc','matched',method,exp,url)
+                        if dealer then
+                           log('rpc','method ambiguous',method,exp,url)
+                           err = 'method ambiguous: '..method
+                           err_id = 'ERR_AMBIGUOUS'
+                        else
+                           matched_exp = exp
+                           dealer = replier.dealer
+                        end
                      end
                   end
                end
-            end
-            if not dealer then
-               err = 'no method for '..method
-               err_id = 'ERR_NOMATCH'
-            end
-            if err then
-               send_error(router,xid_msg,err_id,err)
-            else
-               send_msg(dealer,xid_msg,zSNDMORE)
-               send_msg(dealer,empty_msg,zSNDMORE)
-               send(dealer,matched_exp,zSNDMORE)
-               send_msg(dealer,method_msg,zSNDMORE)
-               send_msg(dealer,arg_msg,0)          
-            end
+               if not dealer then
+                  err = 'no method for '..method
+                  err_id = 'ERR_NOMATCH'
+               end
+               if err then
+                  send_error(router,xid_msg,err_id,err)
+               else
+                  send_msg(dealer,xid_msg,zSNDMORE)
+                  send_msg(dealer,empty_msg,zSNDMORE)
+                  send(dealer,matched_exp,zSNDMORE)
+                  send_msg(dealer,method_msg,zSNDMORE)
+                  send_msg(dealer,arg_msg,0)          
+               end
+               more = getopt(router,zRCVMORE) > 0
+            until not more
          end  
 
       local data_msg = zmq_init_msg()

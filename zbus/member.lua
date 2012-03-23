@@ -15,7 +15,6 @@ local cjson = require'cjson'
 local os = require'os'
 local tconcat = table.concat
 local tinsert = table.insert
-local smatch = string.match
 local zconfig = require'zbus.config'
 local zutil = require'zbus.util'
 
@@ -37,7 +36,6 @@ new =
       local unserialize_args = config.unserialize.args
       local unserialize_result = config.unserialize.result
       local unserialize_err = config.unserialize.err
-      local smatch = smatch
 
       self.broker_call = 
          function(self,args)
@@ -70,6 +68,7 @@ new =
 
       self.listen_add = 
          function(self,expr,func)
+            assert(expr,func)
             if not self.listen then
                self:listen_init()
             end
@@ -79,13 +78,9 @@ new =
 
       self.listen_remove = 
          function(self,expr)
-            if not self.listen then
-               return
-            end
+            assert(expr and self.listen_callbacks and self.listen_callbacks[expr])
             self:broker_call{'listen_remove',self.listen_url,expr}
-            if expr then
-               self.listen_callbacks[expr] = nil
-            end
+            self.listen_callbacks[expr] = nil            
          end
 
       self.replier_init = 
@@ -100,80 +95,83 @@ new =
       
       self.replier_add = 
          function(self,expr,func,async)
+            assert(expr,func) -- async is optional
             if not self.rep then
                self:replier_init()
             end
             self:broker_call{'replier_add',self.rep_url,expr}
             self.reply_callbacks[expr] = {
                func = func,
-               async = async or false
-            }
+               async = async
+            }            
          end
 
       self.replier_remove = 
          function(self,expr)
-            if not self.rep then
-               return
-            end
+            assert(expr and self.reply_callbacks and self.reply_callbacks[expr])
             self:broker_call{'replier_remove',self.rep_url,expr}
-            if expr then
-               self.reply_callbacks[expr] = nil
-            end
+            self.reply_callbacks[expr] = nil            
          end
+
+      -- upvalues for dispatch_request and dispatch_notifications
+      local zmethods = zutil.zmq_methods()
+      local recv = zmethods.recv
+      local send = zmethods.send
+      local getopt = zmethods.getopt
       
-      local rep
-      local recv
-      local send
       local reply_callbacks
-      
+      local rep
       self.dispatch_request = 
-         function()        
+         function()
             rep = rep or self.rep
-            recv = recv or rep.recv
-            send = send or rep.send
             reply_callbacks = reply_callbacks or self.reply_callbacks
-            local expr = recv(rep)
-            local method = recv(rep)
-            local arguments = recv(rep)        
-            local on_success = 
-               function(...)
-                  send(rep,serialize_result(...))  
+            local more 
+            repeat
+               local expr = recv(rep)
+               local method = recv(rep)
+               local arguments = recv(rep)        
+               local on_success = 
+                  function(...)
+                     send(rep,serialize_result(...))  
+                  end
+               local on_error = 
+                  function(err)
+                     send(rep,'',zSNDMORE)          
+                     send(rep,serialize_err(err))
+                  end        
+               local result 
+               local cb = reply_callbacks[expr]
+               if cb then
+                  if cb.async then
+                     result = {pcall(cb.func,
+                                     method,
+                                     on_success,
+                                     on_error,
+                                     unserialize_args(arguments))}
+                  else
+                     result = {pcall(cb.func,
+                                     method,
+                                     unserialize_args(arguments))}
+                     if result[1] then 
+                        on_success(unpack(result,2))
+                        return
+                     end
+                  end
+                  if not result[1] then 
+                     on_error(result[2])
+                  end         
+               else
+                  on_error('method '..method..' not found')
                end
-            local on_error = 
-               function(err)
-                  send(rep,'',zSNDMORE)          
-                  send(rep,serialize_err(err))
-               end        
-            local result 
-            local cb = reply_callbacks[expr]
-            assert(cb)
-            if cb.async then
-               result = {pcall(cb.func,
-                               method,
-                               on_success,
-                               on_error,
-                               unserialize_args(arguments))}
-            else
-               result = {pcall(cb.func,
-                               method,
-                               unserialize_args(arguments))}
-               if result[1] then 
-                  on_success(unpack(result,2))
-                  return
-               end
-            end
-            if not result[1] then 
-               on_error(result[2])
-            end                
+               more = getopt(rep,zRCVMORE) > 0
+            until not more
          end
 
       local listen
+      local listen_callbacks
       self.dispatch_notifications = 
          function()
             listen = listen or self.listen
-            recv = recv or listen.recv
-            getopt = getopt or listen.getopt
-            local listen_callbacks
             local more
             repeat 
                local expr = recv(listen)
@@ -262,6 +260,7 @@ new =
 
       self.call_url = 
          function(self,url,method,...)
+            assert(url and method)
             if not self.rpc_socks[url] then
                self.rpc_socks[url] = zcontext:socket(zmq.REQ)
                self.rpc_socks[url]:connect(url)
