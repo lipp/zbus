@@ -8,12 +8,6 @@ In opposite to dbus, zbus neither describes a message format nor requires XML fo
 
 If you are interested in a higher level bus, have a look at [jet](https://github.com/lipp/jet), which is build on top of zbus.
 
-## Files
-
--    **zbusd.lua**: A Lua program, which acts as "message broker" or "router"
--    **zbus.lua**: The Lua module, which provides an API for being a zbus member (zbus.member)
--    **zbus/json.lua**: An optional Lua module, which defines JSON serialization methods
-
 ## Purpose
 
 zbus is designed with these goals:
@@ -89,7 +83,7 @@ It is a daemon process and will never return. If the zbusd.lua daemon is not sta
 local zbus = require'zbus'
 
 -- create a default zbus member
-local member = zbus.member()
+local member = zbus.member.new()
 
 -- register a function, which will be called, when a zbus-message's url matches expression
 member:replier_add(
@@ -114,7 +108,7 @@ member:loop()
 local zbus = require'zbus'
 
 -- create a default zbus member
-local member = zbus.member()
+local member = zbus.member.new()
 
 -- call the service function and pass some argument string
 local result_str = member:call(
@@ -147,7 +141,7 @@ local zbus = require'zbus'
 local zbus_json_config = require'zbus.json'
 
 -- create a zbus member with the specified serializers
-local member = zbus.member(zbus_json_config)
+local member = zbus.member.new(zbus_json_config)
 
 -- register a function, which will be called, when a zbus-message's url matches expression
 member:replier_add(
@@ -175,7 +169,7 @@ local zbus = require'zbus'
 local zbus_json_config = require'zbus.json'
 
 -- create a zbus member with the specified serializers
-local member = zbus.member(zbus_json_config)
+local member = zbus.member.new(zbus_json_config)
 
 -- call the service function and pass some arguments
 local res = {member:call(
