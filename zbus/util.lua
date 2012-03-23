@@ -26,7 +26,7 @@ local zmq_read_io =
 
 local zmethods
 local zmq_methods =
-   function()
+   function(zcontext)
       if not zmethods then
          local t = zcontext:socket(zmq.REP)
          zmethods = {

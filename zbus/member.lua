@@ -114,7 +114,7 @@ new =
          end
 
       -- upvalues for dispatch_request and dispatch_notifications
-      local zmethods = zutil.zmq_methods()
+      local zmethods = zutil.zmq_methods(zcontext)
       local recv = zmethods.recv
       local send = zmethods.send
       local getopt = zmethods.getopt
