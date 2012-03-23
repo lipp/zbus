@@ -24,6 +24,26 @@ local zmq_read_io =
          ev.READ)
    end
 
+local zmethods
+local zmq_methods =
+   function()
+      if not zmethods then
+         local t = zcontext:socket(zmq.REP)
+         zmethods = {
+            recv = t.recv,
+            recv_msg = t.recv_msg,
+            send = t.send,
+            send_msg = t.send_msg,
+            getopt = t.getopt
+         }
+         t:close()
+      end
+      return zmethods
+   end
+
 return {
-   zmq_read_io = zmq_read_io
+   zmq_read_io = zmq_read_io,
+   zmq_methods = zmq_methods
 }
+
+
