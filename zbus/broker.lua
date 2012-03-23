@@ -3,7 +3,6 @@ local ev = require'ev'
 local assert = assert
 local table = table
 local pairs = pairs
-local type = type
 local tostring = tostring
 local ipairs = ipairs
 local unpack = unpack
