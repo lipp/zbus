@@ -71,14 +71,14 @@ new =
       local config = zconfig.broker(user)
       local log = config.log 
       local loop = ev.Loop.default
-      self.reg = zcontext:socket(zmq.REP)
-      self.reg:bind('tcp://*:'..config.broker.registry_port)
-      self.router = zcontext:socket(zmq.XREP)
-      log(self.router,self.reg)
-      self.router:bind('tcp://*:'..config.broker.rpc_port)
-      self.notify = zcontext:socket(zmq.PULL)
+      self.registry_socket = zcontext:socket(zmq.REP)
+      self.registry_socket:bind('tcp://*:'..config.broker.registry_port)
+      self.method_socket = zcontext:socket(zmq.XREP)
+      log(self.method_socket,self.registry_socket)
+      self.method_socket:bind('tcp://*:'..config.broker.rpc_port)
+      self.notification_socket = zcontext:socket(zmq.PULL)
       local notify_url = 'tcp://*:'..config.broker.notify_port
-      self.notify:bind(notify_url)
+      self.notification_socket:bind(notify_url)
       self.repliers = {}
       self.listeners = {}
       self.url_pool = url_pool(
@@ -96,7 +96,7 @@ new =
             return cmsg
          end
       
-      local zmethods = zutil.zmq_methods()
+      local zmethods = zutil.zmq_methods(zcontext)
       local send = zmethods.send 
       local recv = zmethods.recv
       local send_msg = zmethods.send_msg
@@ -110,7 +110,7 @@ new =
             replier.dealer = zcontext:socket(zmq.XREQ)
             replier.dealer:connect(url)
             local dealer = replier.dealer
-            local router = self.router
+            local router = self.method_socket
             local part_msg = zmq_init_msg()
             replier.io = zutil.zmq_read_io(
                dealer,
@@ -177,7 +177,7 @@ new =
                      repeat
                         local part = replier.dealer:recv()
                         more = replier.dealer:getopt(zRCVMORE) > 0
-                        self.router:send(part,more and zSNDMORE or 0)
+                        self.method_socket:send(part,more and zSNDMORE or 0)
                      until not more
                   end
                   replier.dealer:close()
@@ -270,21 +270,21 @@ new =
 
       local dispatch_registry_call = 
          function()
-            local cmd = self.reg:recv()
+            local cmd = self.registry_socket:recv()
             local args = {}
-            while self.reg:getopt(zRCVMORE) > 0 do
-               local arg = self.reg:recv()
+            while self.registry_socket:getopt(zRCVMORE) > 0 do
+               local arg = self.registry_socket:recv()
                table.insert(args,arg)
             end
             log('reg',cmd,unpack(args))
             local ok,ret = pcall(self.registry_calls[cmd],unpack(args))        
             log('reg','=>',ok,ret)        
             if not ok then
-               self.reg:send('',zSNDMORE)
-               self.reg:send(ret)
+               self.registry_socket:send('',zSNDMORE)
+               self.registry_socket:send(ret)
             else
                ret = ret or ''
-               self.reg:send(ret)
+               self.registry_socket:send(ret)
             end
          end
 
@@ -302,8 +302,8 @@ new =
             send(router,err or '',0)                	   
          end
 
-      local router = self.router
-      local forward_rpc =
+      local router = self.method_socket
+      local forward_method_call =
          function()
             local more
             repeat 
@@ -313,7 +313,7 @@ new =
                end
                recv_msg(router,empty_msg)
                if empty_msg:size() > 0 then
-                  log('forward_rpc','protocol error','expected empty message part')
+                  log('forward_method_call','protocol error','expected empty message part')
                   send_error(router,xid_msg:data(),'ERR_INVALID_MESSAGE','EMPTY_PART_EXPECTED')
                end
                if getopt(router,zRCVMORE) < 1 then
@@ -362,22 +362,22 @@ new =
 
       local data_msg = zmq_init_msg()
       local topic_msg = zmq_init_msg()
-      local notify = self.notify
+      local notification_socket = self.notification_socket
       local listeners = self.listeners   
-      local forward_notify = 
+      local forward_notifications = 
          function()
             local todos = {}
             repeat
-               recv_msg(notify,topic_msg)	   
-               if getopt(notify,zRCVMORE) < 1 then
-                  log('notify','invalid message','no_data')
+               recv_msg(notification_socket,topic_msg)	   
+               if getopt(notification_socket,zRCVMORE) < 1 then
+                  log('forward_notifications','invalid message','no_data')
                   break
                end
                local topic = tostring(topic_msg)
-               recv_msg(notify,data_msg)
+               recv_msg(notification_socket,data_msg)
                for url,listener in pairs(listeners) do
                   for _,exp in pairs(listener.exps) do
-                     log('notify','trying',topic)
+                     log('forward_notifications','trying',topic)
                      if smatch(topic,exp) then
                         if not todos[listener] then
                            todos[listener] = {}
@@ -387,11 +387,11 @@ new =
                                    zmq_copy_msg(topic_msg),
                                    zmq_copy_msg(data_msg),
                                 })
-                        log('notify','matched',topic,exp,url)		     		    
+                        log('forward_notifications','matched',topic,exp,url)		     		    
                      end
                   end
                end
-            until getopt(notify,zRCVMORE) <= 0
+            until getopt(notification_socket,zRCVMORE) <= 0
             for listener,notifications in pairs(todos) do
                local len = #notifications
                local lpush = listener.push
@@ -407,14 +407,14 @@ new =
             end
          end
       
-      self.forward_rpc = forward_rpc
+      self.forward_method_call = forward_method_call
       self.dispatch_registry_call = dispatch_registry_call
-      self.forward_notify = forward_notify
+      self.forward_notifications = forward_notifications
       self.loop = 
          function(self)
-            local registry_io = zutil.zmq_read_io(self.reg,self.dispatch_registry_call)
-            local rpc_io = zutil.zmq_read_io(self.router,self.forward_rpc)
-            local notification_io = zutil.zmq_read_io(self.notify,self.forward_notify)
+            local registry_io = zutil.zmq_read_io(self.registry_socket,self.dispatch_registry_call)
+            local rpc_io = zutil.zmq_read_io(self.method_socket,self.forward_method_call)
+            local notification_io = zutil.zmq_read_io(self.notification_socket,self.forward_notifications)
             rpc_io:start(loop)
             notification_io:start(loop)
             registry_io:start(loop)
