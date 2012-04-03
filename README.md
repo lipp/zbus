@@ -215,13 +215,9 @@ The broker traverses all registered method-call expressions and **assures that j
 ### Registration
 zbus members must register routes to subscribe to notifications or to provide services (methods). A route consists of an expression (a [Lua pattern](http://www.lua.org/pil/20.2.html)) and a zeromq-socket-url (aka [zeromq-endpoint](http://api.zeromq.org/2-1:zmq-connect)). The broker provides a so called **registration socket (default url: "tcp://*:33329", type ZMQ_REP)**, which accepts registration requests. These are the registration calls:
 
-- **url** returns a free local socket url from the pool.
- + params: none
- + return: (local) zeromq url to use for replier or listener socket
 - **replier_open** registers a new (method) replier socket. The broker
- opens a zeromq dealer (ZMQ_XREQ) to specified url.
- + params: url 
- + return: none 
+ binds a zeromq dealer (ZMQ_XREQ) to the url returned.
+ + return: a url to connect to
 - **replier_close** unregisters a previously opened (method) replier
  socket and closes the zeromq dealer.
  + params: url
@@ -235,8 +231,8 @@ zbus members must register routes to subscribe to notifications or to provide se
  to the specified url.
  + params: url,expression
 - **listen_open** registers a new (subscribe) listen socket. The
- broker opens a socket of type ZMQ_PUSH. 
- + params: url 
+ broker binds a socket of type ZMQ_PUSH to the url returned. 
+ + return: a url to connect to
 - **listen_close** unregisters a previously opened (subscribe) listen socket
  + params: url
 - **listen_add** adds an expression to the specified listen socket. Incoming _notifications_ are
