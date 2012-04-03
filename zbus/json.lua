@@ -41,14 +41,6 @@ local serialize_err =
     end
   end
 
-local serialize_zerr = 
-  function(code,msg)
-    return encode{
-      message = 'Method not found',
-      code = -32601
-    }
-  end
-
 local unserialize_err = 
   function(err)
     return decode(err)
@@ -56,7 +48,7 @@ local unserialize_err =
 
 local make_err = 
   function(code,msg)
-    return {
+    return encode{
       code = -32603,
       message = 'Internal error',
       data = {
