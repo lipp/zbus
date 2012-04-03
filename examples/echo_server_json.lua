@@ -1,11 +1,8 @@
-local zbus = require'zbus'
-
+local zm = require'zbus.member'
 -- load the JSON message format serilization
 local zbus_json_config = require'zbus.json'
-
 -- create a zbus member with the specified serializers
-local member = zbus.member.new(zbus_json_config)
-
+local member = zm.new(zbus_json_config)
 -- register a function, which will be called, when a zbus-message's url matches expression
 member:replier_add(
 	 -- the expression to match	

@@ -1,9 +1,5 @@
--- load zbus module
-local zbus = require'zbus'
-
--- create a zbus member with the specified serializers
-local member = zbus.member.new()
-
+local zm = require'zbus.member'
+local member = zm.new()
 -- call the service function
 for i=1,arg[1] or 1 do
   local result_str = member:call(
