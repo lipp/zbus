@@ -3,16 +3,15 @@ local cjson = require'cjson'
 local tinsert = table.insert
 local ev = require'ev'
 local websockets = require'websockets'
-local zbus = require'zbus'
 local ws_ios = {}
 local context = nil
 local log = 
    function(...)
       print('zbus-websocket-bridge',...)
    end
-local zbus = require'zbus'
+local zm = require'zbus.member'
 local zbus_config = require'zbus.json'
-zbus_config.name = 'jet.websocket'
+zbus_config.name = 'websocket-bridge'
 zbus_config.ev_loop = ev.Loop.default
 zbus_config.exit = 
    function()
@@ -21,7 +20,7 @@ zbus_config.exit =
       end
       context:destroy()
    end
-local zm = zbus.member(zbus_config)
+local zm = zm.new(zbus_config)
 local clients = 0
 
 context = websockets.context{
