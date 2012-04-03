@@ -103,11 +103,12 @@ new =
       local getopt = zmethods.getopt
 
       self.new_replier = 
-         function(self,url)
+         function(self)
             local replier = {}
+            local url = self.url_pool:get()
             replier.exps = {}
             replier.dealer = zcontext:socket(zmq.XREQ)
-            replier.dealer:connect(url)
+            replier.dealer:bind(url)
             local dealer = replier.dealer
             local router = self.method_socket
             local part_msg = zmq_init_msg()
@@ -123,37 +124,24 @@ new =
                end) 
             replier.io:start(loop)
             self.repliers[url] = replier
+            return url
          end
 
       self.new_listener = 
-         function(self,url)
+         function(self)
             local listener = {}
+            local url = self.url_pool:get()
             listener.exps = {}
             listener.push = zcontext:socket(zmq.PUSH)
-            listener.push:connect(url)
+            listener.push:bind(url)
             self.listeners[url] = listener
+            return url
          end
 
       self.registry_calls = {
-         url_get = 
-            function()
-               return self.url_pool:get()
-            end,
-
-         url_release = 
-            function(url)
-               self.url_pool:release(url)
-            end,
-
          replier_open = 
-            function(replier_url)
-               if not replier_url then
-                  error('argument error')
-               end
-               if self.repliers[replier_url] then
-                  error('replier already open:'..replier_url)
-               end 
-               self:new_replier(replier_url)
+            function()
+               return self:new_replier(replier_url)
             end,
 
          replier_close = 
@@ -181,6 +169,7 @@ new =
                   end
                   replier.dealer:close()
                   self.repliers[replier_url] = nil
+                  self.url_pool:release(replier_url)
                end
             end,
 
@@ -217,14 +206,8 @@ new =
             end,
 
          listen_open = 
-            function(listen_url)
-               if not listen_url then
-                  error('argument error')
-               end
-               if self.listeners[listen_url] then
-                  error('listener already open:'..listen_url)
-               end
-               self:new_listener(listen_url)                    
+            function()
+               return self:new_listener(listen_url)                    
             end,
 
          listen_close = 
@@ -237,6 +220,7 @@ new =
                end
                self.listeners[listen_url].push:close()
                self.listeners[listen_url] = nil
+               self.url_pool:release(listen_url)
             end,
 
          listen_add = 

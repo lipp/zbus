@@ -57,10 +57,9 @@ new =
       self.listen_init = 
          function(self)        
             assert(not self.listen)
-            self.listen_url = self:broker_call{'url_get'}
             self.listen = zcontext:socket(zmq.PULL)
-            self.listen:bind(self.listen_url)
-            self:broker_call{'listen_open',self.listen_url}
+            self.listen_url = self:broker_call{'listen_open'}
+            self.listen:connect(self.listen_url)
             self.listen_callbacks = {}          
          end
 
@@ -84,10 +83,9 @@ new =
       self.replier_init = 
          function(self)
             assert(not self.rep)
-            self.rep_url = self:broker_call{'url_get'}
             self.rep = zcontext:socket(zmq.REP)
-            self.rep:bind(self.rep_url)
-            self:broker_call{'replier_open',self.rep_url}
+            self.rep_url = self:broker_call{'replier_open'}
+            self.rep:connect(self.rep_url)
             self.reply_callbacks = {}
          end
       
