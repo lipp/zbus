@@ -29,9 +29,8 @@ local unserialize_result = unserialize_array
 
 local serialize_err = 
   function(err)
-    if type(err) == 'table' then
-      assert(err.code and err.message)
-      return encode(err)
+    if type(err) == 'table' and err.code and err.message then
+       return encode(err)       
     else
       local _,msg = pcall(tostring,err) 
       return encode{
