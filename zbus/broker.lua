@@ -27,37 +27,36 @@ local zSNDMORE = zmq.SNDMORE
 local zRCVMORE = zmq.RCVMORE
 local zEVENTS = zmq.EVENTS
 
-local url_pool = 
-   function(interface,port_min,port_max)
+local port_pool = 
+   function(port_min,port_max)
       local self = {}
       self.free = {}
       self.used = {}
-      self.url_base = 'tcp://'..interface..':'
-      for port = port_min,port_max do       
-         self.free[self.url_base..port] = true
+      for port=port_min,port_max do       
+         self.free[tostring(port)] = true
       end
 
       self.get = 
          function(self)
             -- get first table element
-            local url = pairs(self.free)(self.free)
-            if url then
-               self.free[url] = nil
-               self.used[url] = true
-               return url
+            local port = pairs(self.free)(self.free)
+            if port then
+               self.free[port] = nil
+               self.used[port] = true
+               return port
             else
-               error('url pool empty')
+               error('port pool empty')
             end
          end
 
       self.release =
-         function(self,url)	 
-            if self.used[url] then
-               self.used[url] = nil
-               self.free[url] = true
+         function(self,port)	 
+            if self.used[port] then
+               self.used[port] = nil
+               self.free[port] = true
                return true
             else
-               error('invalid url')
+               error('invalid port')
             end
          end
 
@@ -80,10 +79,9 @@ new =
       self.notification_socket:bind(notify_url)
       self.repliers = {}
       self.listeners = {}
-      self.url_pool = url_pool(
-         config.url_pool.interface,
-         config.url_pool.port_min,
-         config.url_pool.port_max
+      self.port_pool = port_pool(
+         config.port_pool.port_min,
+         config.port_pool.port_max
       )
 
       local smatch = smatch
@@ -102,57 +100,42 @@ new =
       local recv_msg = zmethods.recv_msg
       local getopt = zmethods.getopt
 
-      self.new_replier = 
-         function(self)
-            local replier = {}
-            local url = self.url_pool:get()
-            replier.exps = {}
-            replier.dealer = zcontext:socket(zmq.XREQ)
-            replier.dealer:bind(url)
-            local dealer = replier.dealer
-            local router = self.method_socket
-            local part_msg = zmq_init_msg()
-            replier.io = zutil.zmq_read_io(
-               dealer,
-               function()
-                  local more              
-                  repeat
-                     recv_msg(dealer,part_msg)
-                     more = getopt(dealer,zRCVMORE) > 0
-                     send_msg(router,part_msg,more and zSNDMORE or 0)
-                  until not more
-               end) 
-            replier.io:start(loop)
-            self.repliers[url] = replier
-            return url
-         end
-
-      self.new_listener = 
-         function(self)
-            local listener = {}
-            local url = self.url_pool:get()
-            listener.exps = {}
-            listener.push = zcontext:socket(zmq.PUSH)
-            listener.push:bind(url)
-            self.listeners[url] = listener
-            return url
-         end
-
       self.registry_calls = {
          replier_open = 
             function()
-               return self:new_replier(replier_url)
+               local replier = {}
+               local port = self.port_pool:get()
+               local url = 'tcp://'..config.broker.interface..':'..port
+               replier.exps = {}
+               replier.dealer = zcontext:socket(zmq.XREQ)
+               replier.dealer:bind(url)
+               local dealer = replier.dealer
+               local router = self.method_socket
+               local part_msg = zmq_init_msg()
+               replier.io = zutil.zmq_read_io(
+                  dealer,
+                  function()
+                     local more              
+                     repeat
+                        recv_msg(dealer,part_msg)
+                        more = getopt(dealer,zRCVMORE) > 0
+                        send_msg(router,part_msg,more and zSNDMORE or 0)
+                     until not more
+                  end) 
+               replier.io:start(loop)
+               self.repliers[port] = replier
+               return port
             end,
 
          replier_close = 
-            function(replier_url)
-               if not replier_url then
+            function(replier_port)
+               if not replier_port then
                   error('argument error')
                end
-               if not self.repliers[replier_url] then
-                  error('no replier:'..replier_url)
+               if not self.repliers[replier_port] then
+                  error('no replier:'..replier_port)
                end 
-               local replier = self.repliers[replier_url]
+               local replier = self.repliers[replier_port]
                if replier then            
                   replier.io:stop(loop)
                   while true do 
@@ -168,30 +151,30 @@ new =
                      until not more
                   end
                   replier.dealer:close()
-                  self.repliers[replier_url] = nil
-                  self.url_pool:release(replier_url)
+                  self.repliers[replier_port] = nil
+                  self.port_pool:release(replier_port)
                end
             end,
 
          replier_add = 
-            function(replier_url,exp)
-               if not replier_url or not exp then
+            function(replier_port,exp)
+               if not replier_port or not exp then
                   error('argument error')
                end
-               if not self.repliers[replier_url] then
-                  error('no replier:'..replier_url)
+               if not self.repliers[replier_port] then
+                  error('no replier:'..replier_port)
                end
-               table.insert(self.repliers[replier_url].exps,exp)              
+               table.insert(self.repliers[replier_port].exps,exp)              
             end,
 
          replier_remove = 
-            function(replier_url,exp)
-               if not replier_url or not exp then
+            function(replier_port,exp)
+               if not replier_port or not exp then
                   error('argument error')
                end          
-               local rep = self.repliers[replier_url]
+               local rep = self.repliers[replier_port]
                if not rep then
-                  error('no replier:'..replier_url)
+                  error('no replier:'..replier_port)
                end
                local ok
                for i=1,#rep.exps do
@@ -207,41 +190,48 @@ new =
 
          listen_open = 
             function()
-               return self:new_listener(listen_url)                    
+               local listener = {}
+               local port = self.port_pool:get()
+               local url = 'tcp://'..config.broker.interface..':'..port
+               listener.exps = {}
+               listener.push = zcontext:socket(zmq.PUSH)
+               listener.push:bind(url)
+               self.listeners[port] = listener
+               return port
             end,
 
          listen_close = 
-            function(listen_url)
-               if not listen_url then
+            function(listen_port)
+               if not listen_port then
                   error('argument error')
                end
-               if not self.listeners[listen_url] then
-                  error('no listener open:'..listen_url)
+               if not self.listeners[listen_port] then
+                  error('no listener open:'..listen_port)
                end
-               self.listeners[listen_url].push:close()
-               self.listeners[listen_url] = nil
-               self.url_pool:release(listen_url)
+               self.listeners[listen_port].push:close()
+               self.listeners[listen_port] = nil
+               self.port_pool:release(listen_port)
             end,
 
          listen_add = 
-            function(listen_url,exp)
-               if not listen_url or not exp then
+            function(listen_port,exp)
+               if not listen_port or not exp then
                   error('argument error')
                end
-               if not self.listeners[listen_url] then
-                  error('no listener open:'..listen_url)
+               if not self.listeners[listen_port] then
+                  error('no listener open:'..listen_port)
                end
-               table.insert(self.listeners[listen_url].exps,exp)          
+               table.insert(self.listeners[listen_port].exps,exp)          
             end,
 
          listen_remove = 
-            function(listen_url,exp)
-               if not listen_url or not exp then
+            function(listen_port,exp)
+               if not listen_port or not exp then
                   error('arguments error')
                end
-               local listener = self.listeners[listen_url]
+               local listener = self.listeners[listen_port]
                if not listener then
-                  error('no listener open:'..listen_url)
+                  error('no listener open:'..listen_port)
                end
                for i=1,#listener.exps do
                   if listener.exps[i] == exp then

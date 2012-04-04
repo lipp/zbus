@@ -58,8 +58,9 @@ new =
          function(self)        
             assert(not self.listen)
             self.listen = zcontext:socket(zmq.PULL)
-            self.listen_url = self:broker_call{'listen_open'}
-            self.listen:connect(self.listen_url)
+            self.listen_port = self:broker_call{'listen_open'}
+            local url = 'tcp://'..config.broker.ip..':'..self.listen_port
+            self.listen:connect(url)
             self.listen_callbacks = {}          
          end
 
@@ -69,14 +70,14 @@ new =
             if not self.listen then
                self:listen_init()
             end
-            self:broker_call{'listen_add',self.listen_url,expr}
+            self:broker_call{'listen_add',self.listen_port,expr}
             self.listen_callbacks[expr] = func
          end
 
       self.listen_remove = 
          function(self,expr)
             assert(expr and self.listen_callbacks and self.listen_callbacks[expr])
-            self:broker_call{'listen_remove',self.listen_url,expr}
+            self:broker_call{'listen_remove',self.listen_port,expr}
             self.listen_callbacks[expr] = nil            
          end
 
@@ -84,8 +85,9 @@ new =
          function(self)
             assert(not self.rep)
             self.rep = zcontext:socket(zmq.REP)
-            self.rep_url = self:broker_call{'replier_open'}
-            self.rep:connect(self.rep_url)
+            self.rep_port = self:broker_call{'replier_open'}
+            local url = 'tcp://'..config.broker.ip..':'..self.rep_port
+            self.rep:connect(url)
             self.reply_callbacks = {}
          end
       
@@ -95,7 +97,7 @@ new =
             if not self.rep then
                self:replier_init()
             end
-            self:broker_call{'replier_add',self.rep_url,expr}
+            self:broker_call{'replier_add',self.rep_port,expr}
             self.reply_callbacks[expr] = {
                func = func,
                async = async
@@ -105,7 +107,7 @@ new =
       self.replier_remove = 
          function(self,expr)
             assert(expr and self.reply_callbacks and self.reply_callbacks[expr])
-            self:broker_call{'replier_remove',self.rep_url,expr}
+            self:broker_call{'replier_remove',self.rep_port,expr}
             self.reply_callbacks[expr] = nil            
          end
 
@@ -213,21 +215,19 @@ new =
       self.close = 
          function(self)        
             if self.listen then
-               self:broker_call{'listen_close',self.listen_url}
+               self:broker_call{'listen_close',self.listen_port}
             end
             if self.rep then
-               self:broker_call{'replier_close',self.rep_url}
+               self:broker_call{'replier_close',self.rep_port}
             end
             if self.notify_sock then 
                self.notify_sock:close() 
             end
             if self.listen then 
                self.listen:close() 
-               self:broker_call{'url_release',self.listen_url}
             end
             if self.rep then 
                self.rep:close() 
-               self:broker_call{'url_release',self.rep_url}
             end
             if self.registry then 
                self.registry:close() 
@@ -298,8 +298,6 @@ new =
                   if options.exit then
                      options.exit()
                   end
-                  self:close()
-                  zcontext:term()
                   if listen_io then listen_io:stop(loop) end
                   if reply_io then reply_io:stop(loop) end
                   if options.ios then
@@ -307,6 +305,8 @@ new =
                         io:stop(loop)
                      end
                   end
+                  self:close()
+                  zcontext:term()
                end      
             local quit_and_exit = 
                function()

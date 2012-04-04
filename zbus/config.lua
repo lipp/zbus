@@ -17,8 +17,7 @@ local default_broker = {
       rpc_port = rpc_port,
       notify_port = notify_port,
    },
-   url_pool = {
-      interface = '127.0.0.1',
+   port_pool = {
       port_min = base_port + 4,
       port_max = base_port + 100,
    }
