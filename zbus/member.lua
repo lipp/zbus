@@ -34,6 +34,7 @@ new =
       local unserialize_args = config.unserialize.args
       local unserialize_result = config.unserialize.result
       local unserialize_err = config.unserialize.err
+      self.ev_loop = user.ev_loop or ev.Loop.default
 
       self.broker_call = 
          function(self,args)
@@ -273,13 +274,57 @@ new =
             return unserialize_result(resp)
          end
 
+      self.call_async = 
+         function(self,method,on_success,on_error,...)
+            assert(method)
+            if not self.rpc_sock then
+               self.rpc_sock = zcontext:socket(zmq.REQ)
+               local url = 'tcp://'..config.broker.ip..':'..config.broker.rpc_port
+               self.rpc_sock:connect(url)
+            end
+            local sock = self.rpc_sock
+            sock:send(method,zSNDMORE)
+            sock:send(serialize_args(...))
+            -- this recv NOBLOCK is absolutely required! 
+            -- if left out, read_io will never be triggered!
+            local resp = sock:recv(zmq.NOBLOCK)
+            local dispatch_response = 
+               function()
+                  if sock:getopt(zRCVMORE) > 0 then
+                     local err = sock:recv()
+                     if sock:getopt(zRCVMORE) > 0 then            
+                        local msg = sock:recv()
+                        if on_error then
+                           on_error(make_zerr(err,msg),2)
+                        end
+                     else
+                        if on_error then
+                           on_error(unserialize_err(err),2)
+                        end
+                     end
+                  end
+                  if on_success then
+                     on_success(unserialize_result(resp))
+                  end
+               end
+            if resp then
+               dispatch_response()
+            end
+            zutil.zmq_read_io(
+               self.rpc_sock,
+               function(loop,io)
+                  io:stop(loop)
+                  resp = sock:recv()
+                  dispatch_response()
+               end):start(self.ev_loop)
+         end
+
       self.loop = 
          function(self,options)
             local options = options or {}
             local listen_io = self:listen_io()
-            local reply_io = self:reply_io()
-            local loop = options.ev_loop or ev.Loop.default
-            self.loop = loop
+            local reply_io = self:reply_io()            
+            local loop = self.ev_loop
             local SIGHUP = 1
             local SIGINT = 2
             local SIGKILL = 9
@@ -327,7 +372,7 @@ new =
 
       self.unloop = 
          function(self)
-            self.loop:unloop()
+            self.ev_loop:unloop()
          end
       
       return self
