@@ -35,6 +35,7 @@ local make_err =
    end
 
 local default_member = {
+   make_err = make_err,
    serialize = {
       args = identity,
       result = identity,
