@@ -232,10 +232,8 @@ new =
             if self.registry then 
                self.registry:close() 
             end
-            if self.rpc_socks then 
-               for _,sock in pairs(self.rpc_socks) do
-                  sock:close() 
-               end
+            if self.rpc_sock then 
+               self.rpc_sock:close()
             end
          end
 
@@ -251,17 +249,15 @@ new =
             return zutil.zmq_read_io(self.listen,self.dispatch_notifications)
          end
 
-      self.rpc_socks = {}
-      self.rpc_local_url = 'tcp://'..config.broker.ip..':'..config.broker.rpc_port
-
-      self.call_url = 
-         function(self,url,method,...)
-            assert(url and method)
-            if not self.rpc_socks[url] then
-               self.rpc_socks[url] = zcontext:socket(zmq.REQ)
-               self.rpc_socks[url]:connect(url)
+      self.call = 
+         function(self,method,...)
+            assert(method)
+            if not self.rpc_sock then
+               self.rpc_sock = zcontext:socket(zmq.REQ)
+               local url = 'tcp://'..config.broker.ip..':'..config.broker.rpc_port
+               self.rpc_sock:connect(url)
             end
-            local sock = self.rpc_socks[url]
+            local sock = self.rpc_sock
             sock:send(method,zSNDMORE)
             sock:send(serialize_args(...))
             local resp = sock:recv()
@@ -275,11 +271,6 @@ new =
                end
             end
             return unserialize_result(resp)
-         end
-
-      self.call = 
-         function(self,method,...)
-            return self:call_url(self.rpc_local_url,method,...)
          end
 
       self.loop = 
