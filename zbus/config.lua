@@ -11,6 +11,7 @@ local rpc_port = base_port + 3
 
 local default_broker = {
    log = function() end,
+   debug = false,
    broker = {
       interface = '*',
       registry_port = registry_port,
