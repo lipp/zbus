@@ -26,6 +26,7 @@ local zINOUT = zmq.POLLIN + zmq.POLLOUT
 local zSNDMORE = zmq.SNDMORE
 local zRCVMORE = zmq.RCVMORE
 local zEVENTS = zmq.EVENTS
+local zNOBLOCK = zmq.NOBLOCK
 
 local port_pool = 
    function(port_min,port_max)
@@ -94,7 +95,19 @@ new =
          end
       
       local zmethods = zutil.zmq_methods(zcontext)
-      local send = zmethods.send 
+      
+      if config.debug then
+         local asserted_zmethods = {}
+         for name,f in pairs(zmethods) do
+            asserted_zmethods[name] = 
+               function(...)
+                  return assert(f(...))
+               end                        
+         end
+         zmethods = asserted_zmethods
+      end
+
+      local send = zmethods.send
       local recv = zmethods.recv
       local send_msg = zmethods.send_msg
       local recv_msg = zmethods.recv_msg
@@ -117,9 +130,9 @@ new =
                   function()
                      local more              
                      repeat
-                        recv_msg(dealer,part_msg)
+                        recv_msg(dealer,part_msg,zNOBLOCK)
                         more = getopt(dealer,zRCVMORE) > 0
-                        send_msg(router,part_msg,more and zSNDMORE or 0)
+                        send_msg(router,part_msg,(more and zSNDMORE or 0) + zNOBLOCK)
                      until not more
                   end) 
                replier.io:start(loop)
@@ -139,15 +152,15 @@ new =
                if replier then            
                   replier.io:stop(loop)
                   while true do 
-                     local events = replier.dealer:getopt(zEVENTS)
+                     local events = getopt(replier.dealer,zEVENTS)
                      if events ~= zIN and events ~= zINOUT then
                         break
                      end
                      local more
                      repeat
-                        local part = replier.dealer:recv()
-                        more = replier.dealer:getopt(zRCVMORE) > 0
-                        self.method_socket:send(part,more and zSNDMORE or 0)
+                        local part = recv(replier.dealer,zNOBLOCK)
+                        more = getopt(replier.dealer,zRCVMORE) > 0
+                        send(self.method_socket,part,more and zSNDMORE or 0)
                      until not more
                   end
                   replier.dealer:close()
@@ -243,21 +256,21 @@ new =
 
       local dispatch_registry_call = 
          function()
-            local cmd = self.registry_socket:recv()
+            local cmd = recv(self.registry_socket,zNOBLOCK)
             local args = {}
-            while self.registry_socket:getopt(zRCVMORE) > 0 do
-               local arg = self.registry_socket:recv()
+            while getopt(self.registry_socket,zRCVMORE) > 0 do
+               local arg = recv(self.registry_socket,zNOBLOCK)
                table.insert(args,arg)
             end
-            log('reg',cmd,unpack(args))
+--            log('reg',cmd,unpack(args))
             local ok,ret = pcall(self.registry_calls[cmd],unpack(args))        
-            log('reg','=>',ok,ret)        
+--            log('reg','=>',ok,ret)        
             if not ok then
-               self.registry_socket:send('',zSNDMORE)
-               self.registry_socket:send(ret)
+               send(self.registry_socket,'',zSNDMORE)
+               send(self.registry_socket,ret)
             else
                ret = ret or ''
-               self.registry_socket:send(ret)
+               send(self.registry_socket,ret)
             end
          end
 
@@ -268,23 +281,24 @@ new =
 
       local send_error = 
          function(router,xid_msg,err_id,err)
-            send_msg(router,xid_msg,zSNDMORE)
-            send(router,'',zSNDMORE)
-            send(router,'',zSNDMORE)
-            send(router,err_id or 'UNKNOWN_ERROR',zSNDMORE)        
-            send(router,err or '',0)                	   
+            send_msg(router,xid_msg,zSNDMORE + zNOBLOCK)
+            send(router,'',zSNDMORE + zNOBLOCK)
+            send(router,'',zSNDMORE + zNOBLOCK)
+            send(router,err_id or 'UNKNOWN_ERROR',zSNDMORE + zNOBLOCK)        
+            send(router,err or '',zNOBLOCK)                	   
          end
 
       local router = self.method_socket
       local forward_method_call =
          function()
+--            log('forward_method_call','in')
             local more
             repeat 
-               recv_msg(router,xid_msg)
+               recv_msg(router,xid_msg,zNOBLOCK)
                if getopt(router,zRCVMORE) < 1 then
                   send_error(router,xid_msg:data(),'ERR_INVALID_MESSAGE','NO_EMPTY_PART')
                end
-               recv_msg(router,empty_msg)
+               recv_msg(router,empty_msg,zNOBLOCK)
                if empty_msg:size() > 0 then
                   log('forward_method_call','protocol error','expected empty message part')
                   send_error(router,xid_msg:data(),'ERR_INVALID_MESSAGE','EMPTY_PART_EXPECTED')
@@ -292,17 +306,17 @@ new =
                if getopt(router,zRCVMORE) < 1 then
                   send_error(router,xid_msg:data(),'ERR_INVALID_MESSAGE','NO_METHOD')
                end
-               recv_msg(router,method_msg)
+               recv_msg(router,method_msg,zNOBLOCK)
                if getopt(router,zRCVMORE) < 1 then
                   send_error(router,xid_msg:data(),'ERR_INVALID_MESSAGE','NO_ARG')
                end
-               recv_msg(router,arg_msg)        
+               recv_msg(router,arg_msg,zNOBLOCK)        
                local dealer,matched_exp
                local err,err_id
                local method = tostring(method_msg)
                for url,replier in pairs(self.repliers) do 
                   for _,exp in pairs(replier.exps) do
-                     log('rpc','trying',exp,method)--,method:match(exp))
+--                     log('rpc','trying XX',exp,method)--,method:match(exp))
                      if smatch(method,exp) then
                         log('rpc','matched',method,exp,url)
                         if dealer then
@@ -323,11 +337,11 @@ new =
                if err then
                   send_error(router,xid_msg,err_id,err)
                else
-                  send_msg(dealer,xid_msg,zSNDMORE)
-                  send_msg(dealer,empty_msg,zSNDMORE)
-                  send(dealer,matched_exp,zSNDMORE)
-                  send_msg(dealer,method_msg,zSNDMORE)
-                  send_msg(dealer,arg_msg,0)          
+                  send_msg(dealer,xid_msg,zSNDMORE + zNOBLOCK)
+                  send_msg(dealer,empty_msg,zSNDMORE + zNOBLOCK)
+                  send(dealer,matched_exp,zSNDMORE + zNOBLOCK)
+                  send_msg(dealer,method_msg,zSNDMORE + zNOBLOCK)
+                  send_msg(dealer,arg_msg,0 + zNOBLOCK)          
                end
                more = getopt(router,zRCVMORE) > 0
             until not more
@@ -341,16 +355,16 @@ new =
          function()
             local todos = {}
             repeat
-               recv_msg(notification_socket,topic_msg)	   
+               recv_msg(notification_socket,topic_msg,zNOBLOCK)	   
                if getopt(notification_socket,zRCVMORE) < 1 then
                   log('forward_notifications','invalid message','no_data')
                   break
                end
                local topic = tostring(topic_msg)
-               recv_msg(notification_socket,data_msg)
+               recv_msg(notification_socket,data_msg,zNOBLOCK)
                for url,listener in pairs(listeners) do
                   for _,exp in pairs(listener.exps) do
-                     log('forward_notifications','trying',topic)
+--                     log('forward_notifications','trying XX',topic)
                      if smatch(topic,exp) then
                         if not todos[listener] then
                            todos[listener] = {}
@@ -360,7 +374,7 @@ new =
                                    zmq_copy_msg(topic_msg),
                                    zmq_copy_msg(data_msg),
                                 })
-                        log('forward_notifications','matched',topic,exp,url)		     		    
+--                        log('forward_notifications','matched',topic,exp,url)		     		    
                      end
                   end
                end
@@ -373,9 +387,9 @@ new =
                   if i == len then
                      option = 0
                   end
-                  send(lpush,notification[1],zSNDMORE)
-                  send_msg(lpush,notification[2],zSNDMORE)
-                  send_msg(lpush,notification[3],option)
+                  send(lpush,notification[1],zSNDMORE + zNOBLOCK)
+                  send_msg(lpush,notification[2],zSNDMORE + zNOBLOCK)
+                  send_msg(lpush,notification[3],option + zNOBLOCK)
                end
             end
          end
