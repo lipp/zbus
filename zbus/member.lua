@@ -34,7 +34,7 @@ new =
       local unserialize_args = config.unserialize.args
       local unserialize_result = config.unserialize.result
       local unserialize_err = config.unserialize.err
-      self.ev_loop = user.ev_loop or ev.Loop.default
+      self.ev_loop = config.ev_loop or ev.Loop.default
 
       self.broker_call = 
          function(self,args)
