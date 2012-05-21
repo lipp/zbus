@@ -241,13 +241,13 @@ new =
       self.reply_io = 
          function(self)
             if not self.rep then self:replier_init() end
-            return zutil.zmq_read_io(self.rep,self.dispatch_request)
+            return zutil.add_read_io(self.rep,self.dispatch_request)
          end
       
       self.listen_io = 
          function(self)
             if not self.listen then self:listen_init() end
-            return zutil.zmq_read_io(self.listen,self.dispatch_notifications)
+            return zutil.add_read_io(self.listen,self.dispatch_notifications)
          end
 
       self.call = 
@@ -310,12 +310,13 @@ new =
             if resp then
                dispatch_response()
             end
-            zutil.zmq_read_io(
+            zutil.add_read_io(
                self.rpc_sock,
                function(loop,io)
                   io:stop(loop)
+                  zutil.remove_read_io(sock)      
                   resp = sock:recv()
-                  dispatch_response()
+                  dispatch_response()                  
                end):start(self.ev_loop)
          end
 

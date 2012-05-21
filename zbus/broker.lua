@@ -125,7 +125,7 @@ new =
                local dealer = replier.dealer
                local router = self.method_socket
                local part_msg = zmq_init_msg()
-               replier.io = zutil.zmq_read_io(
+               replier.io = zutil.add_read_io(
                   dealer,
                   function()
                      local more              
@@ -164,6 +164,7 @@ new =
                      until not more
                   end
                   replier.dealer:close()
+                  zutil.remove_read_io(replier.dealer)
                   self.repliers[replier_port] = nil
                   self.port_pool:release(replier_port)
                end
@@ -399,9 +400,9 @@ new =
       self.forward_notifications = forward_notifications
       self.loop = 
          function(self)
-            local registry_io = zutil.zmq_read_io(self.registry_socket,self.dispatch_registry_call)
-            local rpc_io = zutil.zmq_read_io(self.method_socket,self.forward_method_call)
-            local notification_io = zutil.zmq_read_io(self.notification_socket,self.forward_notifications)
+            local registry_io = zutil.add_read_io(self.registry_socket,self.dispatch_registry_call)
+            local rpc_io = zutil.add_read_io(self.method_socket,self.forward_method_call)
+            local notification_io = zutil.add_read_io(self.notification_socket,self.forward_notifications)
             rpc_io:start(loop)
             notification_io:start(loop)
             registry_io:start(loop)
