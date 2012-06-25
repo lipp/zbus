@@ -1,4 +1,3 @@
-local zmq = require'zmq'
 local ev = require'ev'
 local assert = assert
 local table = table
@@ -15,12 +14,11 @@ local tconcat = table.concat
 local tinsert = table.insert
 local zconfig = require'zbus.config'
 local zutil = require'zbus.util'
+local socket = require'socket'
+local send_msg = require'zbus.socket'.send_msg
+local receive_msg = require'zbus.socket'.receive_msg
 
 module('zbus.member')
-
-local zcontext = zmq.init(1)
-local zSNDMORE = zmq.SNDMORE
-local zRCVMORE = zmq.RCVMORE
 
 new = 
    function(user)
@@ -39,19 +37,16 @@ new =
       self.broker_call = 
          function(self,args)
             if not self.registry then
-               self.registry = zcontext:socket(zmq.REQ) 
-               local broker_url = 'tcp://'..config.broker.ip..':'..config.broker.registry_port
-               self.registry:connect(broker_url)
+               self.registry = socket.connect(config.broker.ip,config.broker.registry_port)
             end
-            for i,arg in ipairs(args) do          
-               self.registry:send(arg,zSNDMORE)
-            end
-            self.registry:send(config.name)
+            tinsert(args,config.name)
+            send_msg(self.registry,args)
+            local resp = receive_msg(self.registry)
             local resp = self.registry:recv()
-            if self.registry:getopt(zRCVMORE) > 0 then
-               error('broker call "'..tconcat(args,',')..'" failed:'..self.registry:recv())
+            if #resp > 1 then
+               error('broker call "'..tconcat(args,',')..'" failed:'..resp[2])
             else
-               return resp
+               return resp[1]
             end
          end
 

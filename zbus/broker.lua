@@ -1,4 +1,3 @@
-local zmq = require'zmq'
 local ev = require'ev'
 local assert = assert
 local table = table
@@ -17,16 +16,9 @@ local tinsert = table.insert
 local smatch = string.match
 local zconfig = require'zbus.config'
 local zutil = require'zbus.util'
+local listener = require'zbus.socket'.listener
 
 module('zbus.broker')
-
-local zcontext = zmq.init(1)
-local zIN = zmq.POLLIN
-local zINOUT = zmq.POLLIN + zmq.POLLOUT
-local zSNDMORE = zmq.SNDMORE
-local zRCVMORE = zmq.RCVMORE
-local zEVENTS = zmq.EVENTS
-local zNOBLOCK = zmq.NOBLOCK
 
 local port_pool = 
    function(port_min,port_max)
@@ -70,14 +62,8 @@ new =
       local config = zconfig.broker(user)
       local log = config.log 
       local loop = ev.Loop.default
-      self.registry_socket = zcontext:socket(zmq.REP)
-      self.registry_socket:bind('tcp://*:'..config.broker.registry_port)
-      self.method_socket = zcontext:socket(zmq.XREP)
-      log(self.method_socket,self.registry_socket)
-      self.method_socket:bind('tcp://*:'..config.broker.rpc_port)
-      self.notification_socket = zcontext:socket(zmq.PULL)
-      local notify_url = 'tcp://*:'..config.broker.notify_port
-      self.notification_socket:bind(notify_url)
+--      self.method_socket = listener(config.broker.rpc_port)
+      self.notification_socket = listener(config.broker.notify_port)
       self.repliers = {}
       self.listeners = {}
       self.port_pool = port_pool(
@@ -86,56 +72,30 @@ new =
       )
 
       local smatch = smatch
-      local zmq_init_msg = zmq.zmq_msg_t.init
-      local zmq_copy_msg = 
-         function(msg)
-            local cmsg = zmq_init_msg()
-            cmsg:copy(msg)
-            return cmsg
+
+      local on_spurious_message = 
+         function(message)
+            log('SPURIOUS MESSAGE',tconcat(message))
          end
       
-      local zmethods = zutil.zmq_methods(zcontext)
-      
-      if config.debug then
-         local asserted_zmethods = {}
-         for name,f in pairs(zmethods) do
-            asserted_zmethods[name] = 
-               function(...)
-                  return assert(f(...))
-               end                        
-         end
-         zmethods = asserted_zmethods
-      end
-
-      local send = zmethods.send
-      local recv = zmethods.recv
-      local send_msg = zmethods.send_msg
-      local recv_msg = zmethods.recv_msg
-      local getopt = zmethods.getopt
-
       self.registry_calls = {
          replier_open = 
             function()
                local replier = {}
                local port = self.port_pool:get()
-               local url = 'tcp://'..config.broker.interface..':'..port
                replier.exps = {}
-               replier.dealer = zcontext:socket(zmq.XREQ)
-               replier.dealer:bind(url)
-               local dealer = replier.dealer
-               local router = self.method_socket
-               local part_msg = zmq_init_msg()
-               replier.io = zutil.add_read_io(
-                  dealer,
-                  function()
-                     local more              
-                     repeat
-                        recv_msg(dealer,part_msg,zNOBLOCK)
-                        more = getopt(dealer,zRCVMORE) > 0
-                        send_msg(router,part_msg,(more and zSNDMORE or 0) + zNOBLOCK)
-                     until not more
-                  end) 
-               replier.io:start(loop)
+               replier.listener = listener(
+                  port,
+                  function(responder)
+                     self.repliers[port].responder = responder
+                     responder:on_message(on_spurious_message)
+                     responder:on_close(
+                        function()
+--                           self.repliers[port] = nil
+                           self.replier_close(port)
+                        end)
+                  end)
+               replier.dealer.io:start(loop)
                self.repliers[port] = replier
                return port
             end,
@@ -255,30 +215,25 @@ new =
             end,
       }
 
-      local dispatch_registry_call = 
-         function()
-            local cmd = recv(self.registry_socket,zNOBLOCK)
-            local args = {}
-            while getopt(self.registry_socket,zRCVMORE) > 0 do
-               local arg = recv(self.registry_socket,zNOBLOCK)
-               table.insert(args,arg)
-            end
---            log('reg',cmd,unpack(args))
-            local ok,ret = pcall(self.registry_calls[cmd],unpack(args))        
---            log('reg','=>',ok,ret)        
-            if not ok then
-               send(self.registry_socket,'',zSNDMORE)
-               send(self.registry_socket,ret)
-            else
-               ret = ret or ''
-               send(self.registry_socket,ret)
-            end
-         end
-
-      local xid_msg = zmq_init_msg()
-      local empty_msg = zmq_init_msg()
-      local method_msg = zmq_init_msg()
-      local arg_msg = zmq_init_msg()
+      self.registry_socket = listener(
+         config.broker.registry_port,
+         function(client)
+            client:on_message(
+               function(message)
+                  local cmd = message[1]
+                  tremove(message,1)
+                  local args = message
+                  local ok,ret = pcall(self.registry_calls[cmd],unpack(args))        
+                  local resp = {}
+                  if ok then
+                     resp[1] = ret
+                  else
+                     resp[1] = ''
+                     resp[2] = ret
+                  end
+                  client:send_message(resp)
+               end)                
+         end)
 
       local send_error = 
          function(router,xid_msg,err_id,err)
@@ -288,124 +243,112 @@ new =
             send(router,err_id or 'UNKNOWN_ERROR',zSNDMORE + zNOBLOCK)        
             send(router,err or '',zNOBLOCK)                	   
          end
-
-      local router = self.method_socket
-      local forward_method_call =
-         function()
---            log('forward_method_call','in')
-            local more
-            repeat 
-               recv_msg(router,xid_msg,zNOBLOCK)
-               if getopt(router,zRCVMORE) < 1 then
-                  send_error(router,xid_msg:data(),'ERR_INVALID_MESSAGE','NO_EMPTY_PART')
-               end
-               recv_msg(router,empty_msg,zNOBLOCK)
-               if empty_msg:size() > 0 then
-                  log('forward_method_call','protocol error','expected empty message part')
-                  send_error(router,xid_msg:data(),'ERR_INVALID_MESSAGE','EMPTY_PART_EXPECTED')
-               end
-               if getopt(router,zRCVMORE) < 1 then
-                  send_error(router,xid_msg:data(),'ERR_INVALID_MESSAGE','NO_METHOD')
-               end
-               recv_msg(router,method_msg,zNOBLOCK)
-               if getopt(router,zRCVMORE) < 1 then
-                  send_error(router,xid_msg:data(),'ERR_INVALID_MESSAGE','NO_ARG')
-               end
-               recv_msg(router,arg_msg,zNOBLOCK)        
-               local dealer,matched_exp
-               local err,err_id
-               local method = tostring(method_msg)
-               for url,replier in pairs(self.repliers) do 
-                  for _,exp in pairs(replier.exps) do
---                     log('rpc','trying XX',exp,method)--,method:match(exp))
-                     if smatch(method,exp) then
-                        log('rpc','matched',method,exp,url)
-                        if dealer then
-                           log('rpc','method ambiguous',method,exp,url)
-                           err = 'method ambiguous: '..method
-                           err_id = 'ERR_AMBIGUOUS'
-                        else
-                           matched_exp = exp
-                           dealer = replier.dealer
-                        end
-                     end
-                  end
-               end
-               if not dealer then
-                  err = 'no method for '..method
-                  err_id = 'ERR_NOMATCH'
-               end
-               if err then
-                  send_error(router,xid_msg,err_id,err)
-               else
-                  send_msg(dealer,xid_msg,zSNDMORE + zNOBLOCK)
-                  send_msg(dealer,empty_msg,zSNDMORE + zNOBLOCK)
-                  send(dealer,matched_exp,zSNDMORE + zNOBLOCK)
-                  send_msg(dealer,method_msg,zSNDMORE + zNOBLOCK)
-                  send_msg(dealer,arg_msg,0 + zNOBLOCK)          
-               end
-               more = getopt(router,zRCVMORE) > 0
-            until not more
-         end  
-
-      local data_msg = zmq_init_msg()
-      local topic_msg = zmq_init_msg()
-      local notification_socket = self.notification_socket
-      local listeners = self.listeners   
-      local forward_notifications = 
-         function()
-            local todos = {}
-            repeat
-               recv_msg(notification_socket,topic_msg,zNOBLOCK)	   
-               if getopt(notification_socket,zRCVMORE) < 1 then
-                  log('forward_notifications','invalid message','no_data')
-                  break
-               end
-               local topic = tostring(topic_msg)
-               recv_msg(notification_socket,data_msg,zNOBLOCK)
-               for url,listener in pairs(listeners) do
-                  for _,exp in pairs(listener.exps) do
---                     log('forward_notifications','trying XX',topic)
-                     if smatch(topic,exp) then
-                        if not todos[listener] then
-                           todos[listener] = {}
-                        end
-                        tinsert(todos[listener],{
-                                   exp,
-                                   zmq_copy_msg(topic_msg),
-                                   zmq_copy_msg(data_msg),
-                                })
---                        log('forward_notifications','matched',topic,exp,url)		     		    
-                     end
-                  end
-               end
-            until getopt(notification_socket,zRCVMORE) <= 0
-            for listener,notifications in pairs(todos) do
-               local len = #notifications
-               local lpush = listener.push
-               for i,notification in ipairs(notifications) do
-                  local option = zSNDMORE
-                  if i == len then
-                     option = 0
-                  end
-                  send(lpush,notification[1],zSNDMORE + zNOBLOCK)
-                  send_msg(lpush,notification[2],zSNDMORE + zNOBLOCK)
-                  send_msg(lpush,notification[3],option + zNOBLOCK)
-               end
-            end
-         end
       
-      self.forward_method_call = forward_method_call
-      self.dispatch_registry_call = dispatch_registry_call
-      self.forward_notifications = forward_notifications
+      self.method_socket = listener(
+         config.broker.rpc_port,
+         function(client)
+            client:on_message(
+               function(message)
+                  local method = message[1]
+                  local dealer,matched_exp
+                  local err,err_id                 
+                  for url,replier in pairs(self.repliers) do 
+                     for _,exp in pairs(replier.exps) do
+                        --                     log('rpc','trying XX',exp,method)--,method:match(exp))
+                        if smatch(method,exp) then
+                           log('rpc','matched',method,exp,url)
+                           if dealer then
+                              log('rpc','method ambiguous',method,exp,url)
+                              err = 'method ambiguous: '..method
+                              err_id = 'ERR_AMBIGUOUS'
+                           else
+                              matched_exp = exp
+                              dealer = replier.dealer
+                           end
+                        end
+                     end
+                  end
+                  if not dealer then
+                     err = 'no method for '..method
+                     err_id = 'ERR_NOMATCH'
+                  end
+                  if err then
+                     log('ERROR')
+                     send_error(router,xid_msg,err_id,err)
+                  else
+                     dealer.responder:on_message(
+                        function(response)
+                           client:send_msg(response)
+                           dealer.responder:on_message(on_spurious_message)
+                        end)
+                     dealer.responder:send_msg({                                               
+                                                  matched_exp,
+                                                  method_msg,
+                                                  arg_msg
+                                               })
+                  end
+               end)
+         end)
+            
+
+--       local data_msg = zmq_init_msg()
+--       local topic_msg = zmq_init_msg()
+--       local notification_socket = self.notification_socket
+--       local listeners = self.listeners   
+--       local forward_notifications = 
+--          function()
+--             local todos = {}
+--             repeat
+--                recv_msg(notification_socket,topic_msg,zNOBLOCK)	   
+--                if getopt(notification_socket,zRCVMORE) < 1 then
+--                   log('forward_notifications','invalid message','no_data')
+--                   break
+--                end
+--                local topic = tostring(topic_msg)
+--                recv_msg(notification_socket,data_msg,zNOBLOCK)
+--                for url,listener in pairs(listeners) do
+--                   for _,exp in pairs(listener.exps) do
+-- --                     log('forward_notifications','trying XX',topic)
+--                      if smatch(topic,exp) then
+--                         if not todos[listener] then
+--                            todos[listener] = {}
+--                         end
+--                         tinsert(todos[listener],{
+--                                    exp,
+--                                    zmq_copy_msg(topic_msg),
+--                                    zmq_copy_msg(data_msg),
+--                                 })
+-- --                        log('forward_notifications','matched',topic,exp,url)		     		    
+--                      end
+--                   end
+--                end
+--             until getopt(notification_socket,zRCVMORE) <= 0
+--             for listener,notifications in pairs(todos) do
+--                local len = #notifications
+--                local lpush = listener.push
+--                for i,notification in ipairs(notifications) do
+--                   local option = zSNDMORE
+--                   if i == len then
+--                      option = 0
+--                   end
+--                   send(lpush,notification[1],zSNDMORE + zNOBLOCK)
+--                   send_msg(lpush,notification[2],zSNDMORE + zNOBLOCK)
+--                   send_msg(lpush,notification[3],option + zNOBLOCK)
+--                end
+--             end
+--          end
+      
+--      self.forward_method_call = forward_method_call
+--      self.dispatch_registry_call = dispatch_registry_call
+--      self.forward_notifications = forward_notifications
       self.loop = 
          function(self)
-            local registry_io = zutil.add_read_io(self.registry_socket,self.dispatch_registry_call)
-            local rpc_io = zutil.add_read_io(self.method_socket,self.forward_method_call)
-            local notification_io = zutil.add_read_io(self.notification_socket,self.forward_notifications)
-            rpc_io:start(loop)
-            notification_io:start(loop)
-            registry_io:start(loop)
+--            local registry_io = zutil.add_read_io(self.registry_socket,self.dispatch_registry_call)
+--            local rpc_io = zutil.add_read_io(self.method_socket,self.forward_method_call)
+--            local notification_io = zutil.add_read_io(self.notification_socket,self.forward_notifications)
+            self.method_socket.io:start(loop)
+--            notification_io:start(loop)
+            self.registry_socket.io:start(loop)
             loop:loop()
          end
       
