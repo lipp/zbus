@@ -13,34 +13,44 @@ local log = print
 
 module('zbus.socket')
 
-local receive_message = 
-   function(self)
-      local parts = {}
-      while true do
-         local _,bytes = self:receive(4):unpack('>I')
-         if bytes == 0 then 
-            break
-         end
-         local part = self:receive(bytes)
-         tinsert(parts,part)
-      end
---      print('RECV',#parts,tconcat(parts))
-      return parts
+local wrap_sync = 
+   function(sock)
+      assert(sock)
+      return {
+         receive_message = 
+            function(_)
+               local parts = {}
+               while true do
+                  local _,bytes = sock:receive(4):unpack('>I')
+                  if bytes == 0 then 
+                     break
+                  end
+                  local part = sock:receive(bytes)
+                  tinsert(parts,part)
+               end
+               --      print('RECV',#parts,tconcat(parts))
+               return parts
+               end,
+         send_message = 
+            function(_,parts)
+               local message = ''
+               for i,part in ipairs(parts) do
+                  local len = #part
+                  assert(len>0)
+                  message = message..spack('>I',len)..part
+               end
+               message = message..spack('>I',0)      
+               sock:send(message)
+            end,
+         close = 
+            function()
+               sock:shutdown()
+               sock:close()
+            end
+      }
    end
 
-local send_message = 
-   function(self,parts)
-      local message = ''
-      for i,part in ipairs(parts) do
-         local len = #part
-         assert(len>0)
-         message = message..spack('>I',len)..part
-      end
-      message = message..spack('>I',0)      
-      self:send(message)
-   end
-
-local wrap = 
+local wrap_async = 
    function(sock)
       sock:settimeout(0)
       sock:setoption('tcp-nodelay',true)
@@ -186,7 +196,7 @@ local listener =
       local listen_io = ev.IO.new(
          function(loop,accept_io)
             local client = assert(sock:accept())         
-            local wrapped = wrap(client)
+            local wrapped = wrap_async(client)
             wrapped:read_io():start(loop)
             on_connect(wrapped)
          end,
@@ -199,8 +209,7 @@ local listener =
 
 return {
    listener = listener,
-   wrap = wrap,
-   send_message = send_message,
-   receive_message = receive_message
+   wrap_async = wrap_async,
+   wrap_sync = wrap_sync
 }
 

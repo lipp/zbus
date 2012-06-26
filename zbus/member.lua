@@ -15,10 +15,12 @@ local tinsert = table.insert
 local zconfig = require'zbus.config'
 local zutil = require'zbus.util'
 local socket = require'socket'
-local send_message = require'zbus.socket'.send_message
-local receive_message = require'zbus.socket'.receive_message
-local listener = require'zbus.socket'.listener
-local wrap = require'zbus.socket'.wrap
+--local send_message = require'zbus.socket'.send_message
+--local receive_message = require'zbus.socket'.receive_message
+--local listener = require'zbus.socket'.listener
+local wrap_async = require'zbus.socket'.wrap_async
+local wrap_sync = require'zbus.socket'.wrap_sync
+--local receive_message = require'zbus.socket'.receive_message
 
 module('zbus.member')
 
@@ -40,11 +42,11 @@ new =
          function(self,args)
             log('broker_call',args[1])
             if not self.registry then
-               self.registry = socket.connect(config.broker.ip,config.broker.registry_port)
+               self.registry = wrap_sync(socket.connect(config.broker.ip,config.broker.registry_port))
             end
             tinsert(args,config.name)
-            send_message(self.registry,args)
-            local resp = receive_message(self.registry)
+            self.registry:send_message(args)
+            local resp = self.registry:receive_message()
             if #resp > 1 then
                error('broker call "'..tconcat(args,',')..'" failed:'..resp[2])
             else
@@ -83,7 +85,7 @@ new =
          function(self)
             assert(not self.rep)
             self.rep_port = self:broker_call{'replier_open'}
-            self.rep = wrap(socket.connect(config.broker.ip,self.rep_port))           
+            self.rep = wrap_async(socket.connect(config.broker.ip,self.rep_port))           
             self.reply_callbacks = {}
             self.rep:on_message(self.dispatch_request)
          end
@@ -241,15 +243,15 @@ new =
          function(self,method,...)
             assert(method)
             if not self.rpc_sock then
-               self.rpc_sock = socket.connect(config.broker.ip,config.broker.rpc_port)
+               self.rpc_sock = wrap_sync(socket.connect(config.broker.ip,config.broker.rpc_port))
             end
             local sock = self.rpc_sock
-            send_message(sock,{
-                        method,
-                        serialize_args(...)
-                     })
+            sock:send_message{
+               method,
+               serialize_args(...)
+            }
 
-            local resp = receive_message(sock)
+            local resp = sock:receive_message()
             if #resp > 1 then
                local err = resp[2]
                if #resp > 2 then     
