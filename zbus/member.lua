@@ -252,8 +252,8 @@ new =
             local resp = receive_message(sock)
             if #resp > 1 then
                local err = resp[2]
-               if #resp > 2 then            
-                  local msg = resp[2]
+               if #resp > 2 then     
+                  local msg = resp[3]
                   error(make_zerr(err,msg),2)
                else
                   error(unserialize_err(err),2)

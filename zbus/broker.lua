@@ -294,8 +294,12 @@ new =
                      err_id = 'ERR_NOMATCH'
                   end
                   if err then
-                     log('ERROR')
-                     send_error(router,xid_msg,err_id,err)
+                     log('ERROR',err)
+                     client:send_message{
+                        'x', --placeholder, MUST NOT be empty
+                        err_id,
+                        err
+                     }
                   else
                      local rid = tostring(client)..count
                      count = count + 1
