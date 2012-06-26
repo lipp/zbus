@@ -35,8 +35,6 @@ local send_msg =
       self:send(msg)
    end
 
---local replier
-
 local wrap = 
    function(sock)
       sock:settimeout(0)
@@ -53,7 +51,6 @@ local wrap =
             msg = msg..spack('>I',0)
             local len = #msg
             local pos = 1
---            print('SENDING',#msg,msg:byte(1,#msg))
             ev.IO.new(
                function(loop,write_io)                                
                   while pos < len do
@@ -96,21 +93,11 @@ local wrap =
                function(loop,read_io)
                   while true do
                      if not header or #header < 4 then
-                        local header_left = 4                              
-                        if header then
-                           header_left = 4-#header
-                        else
-                           header = ''
-                        end                              
-                        local header_more,err,sub = sock:receive(header_left)
+                        local err,sub 
+                        header,err,sub = sock:receive(4,header)
                         if err then
-                           --                           print('err',err)
                            if err == 'timeout' then
-                              if header then
-                                 header = header..sub
-                              else
-                                 header = sub
-                              end
+                              header = sub
                               return                                    
                            else -- if err == 'closed' then
                               read_io:stop(loop)
@@ -120,38 +107,27 @@ local wrap =
                               return
                            end
                         end
-                        header = header..header_more
-                        _,left = header:unpack('>I')
-                        --                        length = left
-                        --                        print(left)
-                        if left == 0 then
-                           --                           print('on message')
-                           on_message(parts,wrapped)
-                           parts = {}
-                           part = nil
-                           left = nil
-                           length = nil
-                           header = nil
-                        else
-                           length = left
-                           --                           print('length',length)
+                        if #header == 4 then
+                           _,left = header:unpack('>I')
+                           if left == 0 then
+                              on_message(parts,wrapped)
+                              parts = {}
+                              part = nil
+                              left = nil
+                              length = nil
+                              header = nil
+                           else
+                              length = left
+                           end
                         end
                      end
                      if length then
-                        --                       print('aaa')
                         if not part or #part ~= length then
-                           --                      print('xxx')
-                           local last = part
                            local err,sub
-                           part,err,sub = sock:receive(left)                           
+                           part,err,sub = sock:receive(length,part)
                            if err then
-                              --                              print('err 2',err)
                               if err == 'timeout' then
-                                 if part then
-                                    part = part..sub
-                                 else
-                                    part = sub
-                                 end
+                                 part = sub
                                  left = length - #part
                                  return
                               else -- if err == 'closed' then
@@ -162,11 +138,7 @@ local wrap =
                                  return
                               end
                            end
-                           if last then
-                              part = last..part
-                           end
                            if #part == length then
-                              --                              print('on complete')
                               tinsert(parts,part)
                               part = nil
                               left = nil
