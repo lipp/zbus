@@ -50,33 +50,32 @@ new =
             end
          end
 
-      -- self.listen_init = 
-      --    function(self)        
-      --       assert(not self.listen)
-      --       self.listen = zcontext:socket(zmq.PULL)
-      --       self.listen_port = self:broker_call{'listen_open'}
-      --       local url = 'tcp://'..config.broker.ip..':'..self.listen_port
-      --       self.listen:connect(url)
-      --       self.listen_callbacks = {}          
-      --    end
+      self.listen_init = 
+         function(self)        
+            assert(not self.listen)
+            self.listen_port = self:broker_call{'listen_open'}
+            self.listen = wrap_async(socket.connect(config.broker.ip,self.listen_port))
+            self.listen:on_message(self.dispatch_notifications)
+            self.listen_callbacks = {}          
+         end
 
-      -- self.listen_add = 
-      --    function(self,expr,func)
-      --       assert(expr,func)
-      --       if not self.listen then
-      --          self:listen_init()
-      --       end
-      --       self:broker_call{'listen_add',self.listen_port,expr}
-      --       self.listen_callbacks[expr] = func
-      --    end
-
-      -- self.listen_remove = 
-      --    function(self,expr)
-      --       assert(expr and self.listen_callbacks and self.listen_callbacks[expr])
-      --       self:broker_call{'listen_remove',self.listen_port,expr}
-      --       self.listen_callbacks[expr] = nil            
-      --    end
-
+      self.listen_add = 
+         function(self,expr,func)
+            assert(expr,func)
+            if not self.listen then
+               self:listen_init()
+            end
+            self:broker_call{'listen_add',self.listen_port,expr}
+            self.listen_callbacks[expr] = func
+         end
+      
+      self.listen_remove = 
+         function(self,expr)
+            assert(expr and self.listen_callbacks and self.listen_callbacks[expr])
+            self:broker_call{'listen_remove',self.listen_port,expr}
+            self.listen_callbacks[expr] = nil            
+         end
+      
       self.replier_init = 
          function(self)
             assert(not self.rep)
@@ -151,51 +150,45 @@ new =
                end
             end
 
-      -- local listen
-      -- local listen_callbacks
-      -- self.dispatch_notifications = 
-      --    function()
-      --       listen = listen or self.listen
-      --       local more
-      --       repeat 
-      --          local expr = recv(listen)
-      --          local topic = recv(listen)
-      --          local arguments = recv(listen)
-      --          listen_callbacks = listen_callbacks or self.listen_callbacks
-      --          more = getopt(listen,zRCVMORE) > 0
-      --          local cb = listen_callbacks[expr]
-      --          -- could be removed in the meantime
-      --          if cb then
-      --             local ok,err = pcall(cb,topic,more,unserialize_args(arguments))
-      --             if not ok then
-      --                log('dispatch_notifications callback failed',expr,err)
-      --             end
-      --          end
-      --       until not more
-      --    end
+      local listen
+      local listen_callbacks
+      self.dispatch_notifications = 
+         function(notifications)
+            listen = listen or self.listen
+            for i=1,#notifications,3 do
+               local expr = notifications[i]
+               local topic = notifications[i+1]
+               local arguments = notifications[i+2]
+               listen_callbacks = listen_callbacks or self.listen_callbacks
+               local cb = listen_callbacks[expr]
+               -- could be removed in the meantime
+               if cb then
+                  local ok,err = pcall(cb,topic,more,unserialize_args(arguments))
+                  if not ok then
+                     log('dispatch_notifications callback failed',expr,err)
+                  end
+               end
+            end
+         end
       
-      -- self.notify = 
-      --    function(self,topic,...)
-      --       self:notify_more(topic,false,...)
-      --    end
+      self.notify = 
+         function(self,topic,...)
+            self:notify_more(topic,false,...)
+         end
 
-      -- self.notify_more = 
-      --    function(self,topic,more,...)
-      --       local option = 0        
-      --       if more then
-      --          option = zSNDMORE
-      --       end
-      --       local nsock = self.notify_sock
-      --       if not nsock then
-      --          self.notify_sock = zcontext:socket(zmq.PUSH)
-      --          local notify_url = 'tcp://'..config.broker.ip..':'..config.broker.notify_port
-      --          self.notify_sock:connect(notify_url)    
-      --          nsock = self.notify_sock
-      --       end
-      --       send = send or nsock.send
-      --       send(nsock,topic,zSNDMORE)
-      --       send(nsock,serialize_args(...),option)
-      --    end
+      local notifications = {}
+      self.notify_more = 
+         function(self,topic,more,...)
+            if not self.notify_sock then               
+               self.notify_sock = wrap_sync(socket.connect(config.broker.ip,config.broker.notify_port))
+            end
+            tinsert(notifications,topic)
+            tinsert(notifications,serialize_args(...))            
+            if not more then
+               self.notify_sock:send_message(notifications)
+               notifications = {}
+            end
+         end
       
       
       self.close = 
@@ -228,12 +221,12 @@ new =
             if not self.rep then self:replier_init() end
             return self.rep:read_io()
          end
-      
-      -- self.listen_io = 
-      --    function(self)
-      --       if not self.listen then self:listen_init() end
-      --       return zutil.add_read_io(self.listen,self.dispatch_notifications)
-      --    end
+
+      self.listen_io = 
+         function(self)
+            if not self.listen then self:listen_init() end
+            return self.listen:read_io()
+         end
 
       self.call = 
          function(self,method,...)
@@ -309,7 +302,7 @@ new =
       self.loop = 
          function(self,options)
             local options = options or {}
---            local listen_io = self:listen_io()
+            local listen_io = self:listen_io()
             local reply_io = self:reply_io()            
             local loop = self.ev_loop
             local SIGHUP = 1
@@ -321,7 +314,7 @@ new =
                   if options.exit then
                      options.exit()
                   end
---                  if listen_io then listen_io:stop(loop) end
+                  if listen_io then listen_io:stop(loop) end
                   if reply_io then reply_io:stop(loop) end
                   if options.ios then
                      for _,io in ipairs(options.ios) do
@@ -339,10 +332,10 @@ new =
             ev.Signal.new(quit_and_exit,SIGINT):start(loop)
             ev.Signal.new(quit_and_exit,SIGKILL):start(loop)
             ev.Signal.new(quit_and_exit,SIGTERM):start(loop)  
-            -- if listen_io then 
+            if listen_io then 
             --    log('LISTEN');
-            --    listen_io:start(loop) 
-            -- end
+               listen_io:start(loop) 
+            end
             if reply_io then 
 --               log('REPLY');
                reply_io:start(loop) 

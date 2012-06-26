@@ -7,5 +7,6 @@ for i=1,arg[1] or 1 do
     'echo', -- the method url/name
     text -- the argument string
   )
+  print(result_str)
   assert(result_str == text)
 end

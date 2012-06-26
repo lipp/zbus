@@ -119,7 +119,8 @@ new =
                   error('argument error')
                end
                if not self.repliers[replier_port] then
-                  error('no replier:'..replier_port)
+                  return 
+--                  error('no replier:'..replier_port)
                end 
                local replier = self.repliers[replier_port]
                if replier then            
@@ -167,11 +168,16 @@ new =
             function()
                local listener = {}
                local port = self.port_pool:get()               
---               local 
+               log('listen','on',port)
+               listener.acceptor = acceptor(
+                  port,
+                  function(client)
+                     log('really listening',port)
+                     listener.push = client                     
+                  end)
                listener.exps = {}
-               listener.push = zcontext:socket(zmq.PUSH)
-               listener.push:bind(url)
                self.listeners[port] = listener
+               listener.acceptor.io:start(loop)
                return port
             end,
 
@@ -222,7 +228,7 @@ new =
             client:on_message(
                function(message)                  
                   local cmd = message[1]
-                  log('REG',cmd)
+                  log('REG=>',cmd)
                   tremove(message,1)
                   local args = message
                   local ok,ret = pcall(self.registry_calls[cmd],unpack(args))        
@@ -233,7 +239,7 @@ new =
                      resp[1] = 'x' --placeholder, MUST NOT be empty
                      resp[2] = ret
                   end
-                  log('REG',cmd)
+                  log('REG<=',cmd,tconcat(resp,' '))
                   client:send_message(resp)
                end)                
          end)
@@ -242,14 +248,14 @@ new =
          config.broker.notify_port,
          function(client)
             client:on_message(
-               function(notifications)                  
+               function(notifications)
                   local todos = {}
-                  for i=1,#notifications/2 do
+                  for i=1,#notifications,2 do
                      local topic = notifications[i]
                      local data = notifications[i+1]
                      for url,listener in pairs(self.listeners) do
                         for _,exp in pairs(listener.exps) do
-                           --                     log('forward_notifications','trying XX',topic)
+                       --    log('forward_notifications','trying XX',topic)
                            if smatch(topic,exp) then
                               if not todos[listener] then
                                  todos[listener] = {}
@@ -262,6 +268,7 @@ new =
                      end
                   end
                   for listener,notifications in pairs(todos) do
+          --           log('NOTIFIYIN',tconcat(notifications))
                      listener.push:send_message(notifications)
                   end                  
                end)
@@ -318,16 +325,10 @@ new =
                end)
          end)
                   
---      self.forward_method_call = forward_method_call
---      self.dispatch_registry_call = dispatch_registry_call
---      self.forward_notifications = forward_notifications
       self.loop = 
          function(self)
---            local registry_io = zutil.add_read_io(self.registry_socket,self.dispatch_registry_call)
---            local rpc_io = zutil.add_read_io(self.method_socket,self.forward_method_call)
---            local notification_io = zutil.add_read_io(self.notification_socket,self.forward_notifications)
             self.method_socket.io:start(loop)
---            notification_io:start(loop)
+            self.notification_socket.io:start(loop)
             self.registry_socket.io:start(loop)
             loop:loop()
          end
