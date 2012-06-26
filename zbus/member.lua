@@ -122,7 +122,7 @@ new =
                end
             local on_error = 
                function(err)
-                  rep:send_message{rid,'',serialize_err(err)}
+                  rep:send_message{rid,'x',serialize_err(err)}
                end        
             local result 
                local cb = reply_callbacks[expr]
@@ -253,51 +253,36 @@ new =
             return unserialize_result(resp[1])
          end
 
-      -- self.call_async = 
-      --    function(self,method,on_success,on_error,...)
-      --       assert(method)
-      --       if not self.rpc_sock then
-      --          self.rpc_sock = zcontext:socket(zmq.REQ)
-      --          local url = 'tcp://'..config.broker.ip..':'..config.broker.rpc_port
-      --          self.rpc_sock:connect(url)
-      --       end
-      --       local sock = self.rpc_sock
-      --       sock:send(method,zSNDMORE)
-      --       sock:send(serialize_args(...))
-      --       -- this recv NOBLOCK is absolutely required! 
-      --       -- if left out, read_io will never be triggered!
-      --       local resp = sock:recv(zmq.NOBLOCK)
-      --       local dispatch_response = 
-      --          function()
-      --             if sock:getopt(zRCVMORE) > 0 then
-      --                local err = sock:recv()
-      --                if sock:getopt(zRCVMORE) > 0 then            
-      --                   local msg = sock:recv()
-      --                   if on_error then
-      --                      on_error(make_zerr(err,msg),2)
-      --                   end
-      --                else
-      --                   if on_error then
-      --                      on_error(unserialize_err(err),2)
-      --                   end
-      --                end
-      --             end
-      --             if on_success then
-      --                on_success(unserialize_result(resp))
-      --             end
-      --          end
-      --       if resp then
-      --          dispatch_response()
-      --       end
-      --       zutil.add_read_io(
-      --          self.rpc_sock,
-      --          function(loop,io)
-      --             io:stop(loop)
-      --             zutil.remove_read_io(sock)      
-      --             resp = sock:recv()
-      --             dispatch_response()                  
-      --          end):start(self.ev_loop)
-      --    end
+      self.call_async = 
+         function(self,method,on_success,on_error,...)
+            assert(method)
+            if not self.rpc_sock then
+               self.rpc_sock = wrap_sync(socket.connect(config.broker.ip,config.broker.rpc_port))               
+            end
+            local sock = self.rpc_sock
+            ev.IO.new(
+               function(loop,io)
+                  io:stop(loop)
+                  local resp = sock:receive_message()
+                  if #resp > 1 then
+                     local err = resp[2]
+                     if #resp > 2 then     
+                        local msg = resp[3]
+                        on_error(make_zerr(err,msg),2)
+                     else
+                        on_error(unserialize_err(err),2)
+                     end
+                  end
+                  on_success(unserialize_result(resp[1]))
+               end,
+               sock:getfd(),
+               ev.READ):start(self.ev_loop)
+            
+            sock:send_message{
+               method,
+               serialize_args(...)
+            }
+         end
 
       self.loop = 
          function(self,options)
