@@ -16,7 +16,6 @@ local tinsert = table.insert
 local tremove = table.remove
 local smatch = string.match
 local zconfig = require'zbus.config'
-local zutil = require'zbus.util'
 local acceptor = require'zbus.socket'.listener
 
 module('zbus.broker')
@@ -53,7 +52,6 @@ local port_pool =
                error('invalid port')
             end
          end
-
       return self
    end
 

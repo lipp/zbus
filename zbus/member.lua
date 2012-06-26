@@ -13,7 +13,6 @@ local os = require'os'
 local tconcat = table.concat
 local tinsert = table.insert
 local zconfig = require'zbus.config'
-local zutil = require'zbus.util'
 local socket = require'socket'
 local wrap_async = require'zbus.socket'.wrap_async
 local wrap_sync = require'zbus.socket'.wrap_sync
