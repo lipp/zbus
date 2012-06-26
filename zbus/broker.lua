@@ -85,6 +85,8 @@ new =
                   port,
                   function(responder)
                      log('replier really open')
+                     replier.acceptor.io:stop(loop)
+                     replier.acceptor = nil
                      self.repliers[port].responder = responder
                      responder:on_message(
                         function(response)
@@ -124,8 +126,12 @@ new =
                end 
                local replier = self.repliers[replier_port]
                if replier then            
-                  replier.acceptor.io:stop(loop)
-                  replier.responder:close()
+                  if replier.acceptor then
+                     replier.acceptor.io:stop(loop)
+                  end
+                  if replier.responder then
+                     replier.responder:close()
+                  end
                   self.repliers[replier_port] = nil
                   self.port_pool:release(replier_port)
                end
@@ -172,6 +178,8 @@ new =
                listener.acceptor = acceptor(
                   port,
                   function(client)
+                     listener.acceptor.io:stop(loop)
+                     listener.acceptor = nil
                      log('really listening',port)
                      listener.push = client                     
                   end)
@@ -189,7 +197,12 @@ new =
                if not self.listeners[listen_port] then
                   error('no listener open:'..listen_port)
                end
-               self.listeners[listen_port].push:close()
+               if self.listeners[listen_port].push then
+                  self.listeners[listen_port].push:close()
+               end
+               if self.listeners[listen_port].acceptor then
+                  listener.acceptor.io:stop(loop)
+               end
                self.listeners[listen_port] = nil
                self.port_pool:release(listen_port)
             end,
