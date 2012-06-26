@@ -12,7 +12,7 @@ local log = print
 
 module('zbus.socket')
 
-local receive_msg = 
+local receive_message = 
    function(self)
       local parts = {}
       while true do
@@ -26,14 +26,14 @@ local receive_msg =
       return parts
    end
 
-local send_msg = 
+local send_message = 
    function(self,parts)
-      local msg = ''
+      local message = ''
       for i,part in ipairs(parts) do
-         msg = msg..spack('>I',#part)..part
+         message = message..spack('>I',#part)..part
       end
-      msg = msg..spack('>I',0)      
-      self:send(msg)
+      message = message..spack('>I',0)      
+      self:send(message)
    end
 
 local wrap = 
@@ -43,20 +43,20 @@ local wrap =
       local on_message = function() end
       local on_close = function() end
       local wrapped = {}
-      wrapped.send_msg =                              
+      wrapped.send_message =                              
          function(_,parts)
-            local msg = ''
+            local message = ''
             for i,part in ipairs(parts) do
-               msg = msg..spack('>I',#part)..part
+               message = message..spack('>I',#part)..part
             end
-            msg = msg..spack('>I',0)
-            local len = #msg
+            message = message..spack('>I',0)
+            local len = #message
             local pos = 1
             ev.IO.new(
                function(loop,write_io)                                
                   while pos < len do
                      local err                                    
-                     pos,err = sock:send(msg,pos)
+                     pos,err = sock:send(message,pos)
                      if not pos then
                         if err == 'timeout' then
                            return
@@ -186,7 +186,7 @@ local listener =
 return {
    listener = listener,
    wrap = wrap,
-   send_msg = send_msg,
-   receive_msg = receive_msg
+   send_message = send_message,
+   receive_message = receive_message
 }
 

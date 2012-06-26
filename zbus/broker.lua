@@ -96,7 +96,7 @@ new =
                            if client then
                               todo[rid] = nil
                               tremove(response,1)
-                              client:send_msg(response)
+                              client:send_message(response)
                               --                     listener.responder:on_message(on_spurious_message)
                            else
                               log('SPURIOUS MESSAGE',tconcat(message))
@@ -249,7 +249,7 @@ new =
                      resp[2] = ret
                   end
                   log('REG',cmd)
-                  client:send_msg(resp)
+                  client:send_message(resp)
                end)                
          end)
 
@@ -300,7 +300,7 @@ new =
                      local rid = tostring(client)..count
                      count = count + 1
                      todo[rid] = client
-                     listener.responder:send_msg({  
+                     listener.responder:send_message({  
                                                     rid,
                                                     matched_exp,
                                                     method,

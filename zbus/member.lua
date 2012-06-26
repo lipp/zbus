@@ -15,8 +15,8 @@ local tinsert = table.insert
 local zconfig = require'zbus.config'
 local zutil = require'zbus.util'
 local socket = require'socket'
-local send_msg = require'zbus.socket'.send_msg
-local receive_msg = require'zbus.socket'.receive_msg
+local send_message = require'zbus.socket'.send_message
+local receive_message = require'zbus.socket'.receive_message
 local listener = require'zbus.socket'.listener
 local wrap = require'zbus.socket'.wrap
 
@@ -40,20 +40,14 @@ new =
          function(self,args)
             log('broker_call',args[1])
             if not self.registry then
-               log('broker_call YY')
                self.registry = socket.connect(config.broker.ip,config.broker.registry_port)
-               log('broker_call XXX',self.registry)
             end
             tinsert(args,config.name)
-            send_msg(self.registry,args)
-            log('broker_call 2')
-            local resp = receive_msg(self.registry)
-
-     --       local resp = self.registry:recv()
+            send_message(self.registry,args)
+            local resp = receive_message(self.registry)
             if #resp > 1 then
                error('broker call "'..tconcat(args,',')..'" failed:'..resp[2])
             else
-               log('broker_call ',args[1],'ok')
                return resp[1]
             end
          end
@@ -97,7 +91,6 @@ new =
       self.replier_add = 
          function(self,expr,func,async)
             assert(expr,func) -- async is optional
-            log('adding',expr)
             if not self.rep then
                self:replier_init()
             end
@@ -126,16 +119,13 @@ new =
             local expr = request[2]
             local method = request[3]
             local arguments = request[4]
---            print('DISPATCH',rid,expr,method,arguments)
             local on_success = 
                function(...)
-            --      log('SUCCESS',...)
-                  rep:send_msg{rid,serialize_result(...)}
+                  rep:send_message{rid,serialize_result(...)}
                end
             local on_error = 
                function(err)
-          --        log('ERROR',err)
-                  rep:send_msg{rid,'',serialize_err(err)}
+                  rep:send_message{rid,'',serialize_err(err)}
                end        
             local result 
                local cb = reply_callbacks[expr]
@@ -254,12 +244,12 @@ new =
                self.rpc_sock = socket.connect(config.broker.ip,config.broker.rpc_port)
             end
             local sock = self.rpc_sock
-            send_msg(sock,{
+            send_message(sock,{
                         method,
                         serialize_args(...)
                      })
 
-            local resp = receive_msg(sock)
+            local resp = receive_message(sock)
             if #resp > 1 then
                local err = resp[2]
                if #resp > 2 then            
