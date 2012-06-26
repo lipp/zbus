@@ -17,7 +17,7 @@ local tremove = table.remove
 local smatch = string.match
 local zconfig = require'zbus.config'
 local zutil = require'zbus.util'
-local listener = require'zbus.socket'.listener
+local acceptor = require'zbus.socket'.listener
 
 module('zbus.broker')
 
@@ -63,8 +63,6 @@ new =
       local config = zconfig.broker(user)
       local log = config.log 
       local loop = ev.Loop.default
---      self.method_socket = listener(config.broker.rpc_port)
-      self.notification_socket = listener(config.broker.notify_port)
       self.repliers = {}
       self.listeners = {}
       self.port_pool = port_pool(
@@ -83,11 +81,11 @@ new =
                local replier = {}
                local port = self.port_pool:get()
                replier.exps = {}
-               replier.listener = listener(
+               replier.acceptor = acceptor(
                   port,
                   function(responder)
                      log('replier really open')
-                     self.repliers[port].listener.responder = responder
+                     self.repliers[port].responder = responder
                      responder:on_message(
                         function(response)
                      --      log(tostring(sock)..'<-RPC',tconcat(response))
@@ -110,7 +108,7 @@ new =
                            self.registry_calls.replier_close(port)
                         end)
                   end)
-               replier.listener.io:start(loop)
+               replier.acceptor.io:start(loop)
                self.repliers[port] = replier
                return port
             end,
@@ -125,8 +123,8 @@ new =
                end 
                local replier = self.repliers[replier_port]
                if replier then            
-                  replier.listener.io:stop(loop)
-                  replier.listener.responder:close()
+                  replier.acceptor.io:stop(loop)
+                  replier.responder:close()
                   self.repliers[replier_port] = nil
                   self.port_pool:release(replier_port)
                end
@@ -168,8 +166,8 @@ new =
          listen_open = 
             function()
                local listener = {}
-               local port = self.port_pool:get()
-               local url = 'tcp://'..config.broker.interface..':'..port
+               local port = self.port_pool:get()               
+--               local 
                listener.exps = {}
                listener.push = zcontext:socket(zmq.PUSH)
                listener.push:bind(url)
@@ -218,7 +216,7 @@ new =
             end,
       }
 
-      self.registry_socket = listener(
+      self.registry_socket = acceptor(
          config.broker.registry_port,
          function(client)
             client:on_message(
@@ -240,17 +238,36 @@ new =
                end)                
          end)
 
-      local send_error = 
-         function(router,xid_msg,err_id,err)
-            log(xid_msg,err_id,err)
-            send_msg(router,xid_msg,zSNDMORE + zNOBLOCK)
-            send(router,'',zSNDMORE + zNOBLOCK)
-            send(router,'',zSNDMORE + zNOBLOCK)
-            send(router,err_id or 'UNKNOWN_ERROR',zSNDMORE + zNOBLOCK)        
-            send(router,err or '',zNOBLOCK)                	   
-         end
-      
-      self.method_socket = listener(
+      self.notification_socket = acceptor(
+         config.broker.notify_port,
+         function(client)
+            client:on_message(
+               function(notifications)                  
+                  local todos = {}
+                  for i=1,#notifications/2 do
+                     local topic = notifications[i]
+                     local data = notifications[i+1]
+                     for url,listener in pairs(self.listeners) do
+                        for _,exp in pairs(listener.exps) do
+                           --                     log('forward_notifications','trying XX',topic)
+                           if smatch(topic,exp) then
+                              if not todos[listener] then
+                                 todos[listener] = {}
+                              end
+                              tinsert(todos[listener],exp)
+                              tinsert(todos[listener],topic)
+                              tinsert(todos[listener],data)
+                           end
+                        end                      
+                     end
+                  end
+                  for listener,notifications in pairs(todos) do
+                     listener.push:send_message(notifications)
+                  end                  
+               end)
+         end)    
+
+      self.method_socket = acceptor(
          config.broker.rpc_port,
          function(client)
             local count = 0
@@ -258,25 +275,25 @@ new =
                function(message,sock)
 --                  log(tostring(sock)..'->RPC',tconcat(message))
                   local method = message[1]
-                  local listener,matched_exp
+                  local responder,matched_exp
                   local err,err_id                 
                   for url,replier in pairs(self.repliers) do 
                      for _,exp in pairs(replier.exps) do
 --                        log('rpc','trying XX',exp,method)--,method:match(exp))
                         if smatch(method,exp) then
   --                         log('rpc','matched',method,exp,url)
-                           if listener then
+                           if responder then
                               log('rpc','method ambiguous',method,exp,url)
                               err = 'method ambiguous: '..method
                               err_id = 'ERR_AMBIGUOUS'
                            else
                               matched_exp = exp
-                              listener = replier.listener
+                              responder = replier.responder
                            end
                         end
                      end
                   end
-                  if not listener then
+                  if not responder then
                      err = 'no method for '..method
                      err_id = 'ERR_NOMATCH'
                   end
@@ -291,64 +308,16 @@ new =
                      local rid = tostring(client)..count
                      count = count + 1
                      todo[rid] = client
-                     listener.responder:send_message({  
-                                                    rid,
-                                                    matched_exp,
-                                                    method,
-                                                    message[2]
-                                               })
+                     responder:send_message({  
+                                               rid,
+                                               matched_exp,
+                                               method,
+                                               message[2]
+                                            })
                   end
                end)
          end)
-            
-
---       local data_msg = zmq_init_msg()
---       local topic_msg = zmq_init_msg()
---       local notification_socket = self.notification_socket
---       local listeners = self.listeners   
---       local forward_notifications = 
---          function()
---             local todos = {}
---             repeat
---                recv_msg(notification_socket,topic_msg,zNOBLOCK)	   
---                if getopt(notification_socket,zRCVMORE) < 1 then
---                   log('forward_notifications','invalid message','no_data')
---                   break
---                end
---                local topic = tostring(topic_msg)
---                recv_msg(notification_socket,data_msg,zNOBLOCK)
---                for url,listener in pairs(listeners) do
---                   for _,exp in pairs(listener.exps) do
--- --                     log('forward_notifications','trying XX',topic)
---                      if smatch(topic,exp) then
---                         if not todos[listener] then
---                            todos[listener] = {}
---                         end
---                         tinsert(todos[listener],{
---                                    exp,
---                                    zmq_copy_msg(topic_msg),
---                                    zmq_copy_msg(data_msg),
---                                 })
--- --                        log('forward_notifications','matched',topic,exp,url)		     		    
---                      end
---                   end
---                end
---             until getopt(notification_socket,zRCVMORE) <= 0
---             for listener,notifications in pairs(todos) do
---                local len = #notifications
---                local lpush = listener.push
---                for i,notification in ipairs(notifications) do
---                   local option = zSNDMORE
---                   if i == len then
---                      option = 0
---                   end
---                   send(lpush,notification[1],zSNDMORE + zNOBLOCK)
---                   send_msg(lpush,notification[2],zSNDMORE + zNOBLOCK)
---                   send_msg(lpush,notification[3],option + zNOBLOCK)
---                end
---             end
---          end
-      
+                  
 --      self.forward_method_call = forward_method_call
 --      self.dispatch_registry_call = dispatch_registry_call
 --      self.forward_notifications = forward_notifications
