@@ -15,12 +15,8 @@ local tinsert = table.insert
 local zconfig = require'zbus.config'
 local zutil = require'zbus.util'
 local socket = require'socket'
---local send_message = require'zbus.socket'.send_message
---local receive_message = require'zbus.socket'.receive_message
---local listener = require'zbus.socket'.listener
 local wrap_async = require'zbus.socket'.wrap_async
 local wrap_sync = require'zbus.socket'.wrap_sync
---local receive_message = require'zbus.socket'.receive_message
 
 module('zbus.member')
 
