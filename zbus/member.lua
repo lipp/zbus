@@ -40,7 +40,7 @@ new =
             if not self.registry then
                local sock = socket.connect(config.broker.ip,config.broker.registry_port)
                if not sock then
-                  error('could not connect to zbusd registry on '..config.broker.ip..':'..config.broker.registry_port,2)
+                  error('could not connect to zbusd registry on '..config.broker.ip..':'..config.broker.registry_port,4)
                end
                self.registry = wrap_sync(sock)
             end
@@ -237,7 +237,7 @@ new =
             if not self.rpc_sock then
                local sock = socket.connect(config.broker.ip,config.broker.rpc_port)
                if not sock then
-                  error('could not connect to zbusd rpc sock on '..config.broker.ip..':'..config.broker.rpc_port,2)
+                  error('could not connect to zbusd rpc sock on '..config.broker.ip..':'..config.broker.rpc_port,4)
                end
                self.rpc_sock = wrap_sync(sock)               
             end
