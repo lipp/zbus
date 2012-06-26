@@ -13,6 +13,7 @@ local cjson = require'cjson'
 local os = require'os'
 local tconcat = table.concat
 local tinsert = table.insert
+local tremove = table.remove
 local smatch = string.match
 local zconfig = require'zbus.config'
 local zutil = require'zbus.util'
@@ -73,29 +74,43 @@ new =
 
       local smatch = smatch
 
-      local on_spurious_message = 
-         function(message)
-            log('SPURIOUS MESSAGE',tconcat(message))
-         end
+      local todo = {}
       
       self.registry_calls = {
          replier_open = 
             function()
+               log('replier_open')
                local replier = {}
                local port = self.port_pool:get()
                replier.exps = {}
                replier.listener = listener(
                   port,
                   function(responder)
-                     self.repliers[port].responder = responder
-                     responder:on_message(on_spurious_message)
+                     log('replier really open')
+                     self.repliers[port].listener.responder = responder
+                     responder:on_message(
+                        function(response)
+                     --      log(tostring(sock)..'<-RPC',tconcat(response))
+                           local rid = response[1]
+                           local client = todo[rid]
+                           if client then
+                              todo[rid] = nil
+                              tremove(response,1)
+                              client:send_msg(response)
+                              --                     listener.responder:on_message(on_spurious_message)
+                           else
+                              log('SPURIOUS MESSAGE',tconcat(message))
+                           end
+                        end)
+
+--                     responder:on_message(on_spurious_message)
                      responder:on_close(
                         function()
 --                           self.repliers[port] = nil
                            self.replier_close(port)
                         end)
                   end)
-               replier.dealer.io:start(loop)
+               replier.listener.io:start(loop)
                self.repliers[port] = replier
                return port
             end,
@@ -132,6 +147,7 @@ new =
 
          replier_add = 
             function(replier_port,exp)
+               log('replier_add',replier_port,exp)
                if not replier_port or not exp then
                   error('argument error')
                end
@@ -219,8 +235,9 @@ new =
          config.broker.registry_port,
          function(client)
             client:on_message(
-               function(message)
+               function(message)                  
                   local cmd = message[1]
+                  log('REG',cmd)
                   tremove(message,1)
                   local args = message
                   local ok,ret = pcall(self.registry_calls[cmd],unpack(args))        
@@ -231,12 +248,14 @@ new =
                      resp[1] = ''
                      resp[2] = ret
                   end
-                  client:send_message(resp)
+                  log('REG',cmd)
+                  client:send_msg(resp)
                end)                
          end)
 
       local send_error = 
          function(router,xid_msg,err_id,err)
+            log(xid_msg,err_id,err)
             send_msg(router,xid_msg,zSNDMORE + zNOBLOCK)
             send(router,'',zSNDMORE + zNOBLOCK)
             send(router,'',zSNDMORE + zNOBLOCK)
@@ -247,28 +266,30 @@ new =
       self.method_socket = listener(
          config.broker.rpc_port,
          function(client)
+            local count = 0
             client:on_message(
-               function(message)
+               function(message,sock)
+--                  log(tostring(sock)..'->RPC',tconcat(message))
                   local method = message[1]
-                  local dealer,matched_exp
+                  local listener,matched_exp
                   local err,err_id                 
                   for url,replier in pairs(self.repliers) do 
                      for _,exp in pairs(replier.exps) do
-                        --                     log('rpc','trying XX',exp,method)--,method:match(exp))
+--                        log('rpc','trying XX',exp,method)--,method:match(exp))
                         if smatch(method,exp) then
-                           log('rpc','matched',method,exp,url)
-                           if dealer then
+  --                         log('rpc','matched',method,exp,url)
+                           if listener then
                               log('rpc','method ambiguous',method,exp,url)
                               err = 'method ambiguous: '..method
                               err_id = 'ERR_AMBIGUOUS'
                            else
                               matched_exp = exp
-                              dealer = replier.dealer
+                              listener = replier.listener
                            end
                         end
                      end
                   end
-                  if not dealer then
+                  if not listener then
                      err = 'no method for '..method
                      err_id = 'ERR_NOMATCH'
                   end
@@ -276,15 +297,14 @@ new =
                      log('ERROR')
                      send_error(router,xid_msg,err_id,err)
                   else
-                     dealer.responder:on_message(
-                        function(response)
-                           client:send_msg(response)
-                           dealer.responder:on_message(on_spurious_message)
-                        end)
-                     dealer.responder:send_msg({                                               
-                                                  matched_exp,
-                                                  method_msg,
-                                                  arg_msg
+                     local rid = tostring(client)..count
+                     count = count + 1
+                     todo[rid] = client
+                     listener.responder:send_msg({  
+                                                    rid,
+                                                    matched_exp,
+                                                    method,
+                                                    message[2]
                                                })
                   end
                end)

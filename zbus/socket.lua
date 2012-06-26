@@ -15,11 +15,12 @@ local receive_msg =
    function(self)
       local parts = {}
       while true do
-         local bytes = self:receive(4):unpack('>I')
+         local _,bytes = self:receive(4):unpack('>I')
          if bytes == 0 then 
             break
          end
-         table.insert(parts,self:receive(bytes))
+         local part = self:receive(bytes)
+         tinsert(parts,part)
       end
       return parts
    end
@@ -36,83 +37,64 @@ local send_msg =
 
 --local replier
 
---local xyz = 
-
-
-local listener = 
-   function(port,on_connect)
-      local sock = assert(socket.bind('*',port))
+local wrap = 
+   function(sock)
       sock:settimeout(0)
-      local listen_io = ev.IO.new(
-         function(loop,accept_io)
-            local client = assert(sock:accept())
-            client:settimeout(0)
-            client:setoption('tcp-nodelay',true)
-            local on_message
-            local on_close
-            if on_connect then
-               on_connect(
-                  {
-                     send_msg =                              
-                        function(_,parts)
-                           local msg = ''
-                           for i,part in ipairs(parts) do
-                              msg = msg..spack('>I',#part)..part
-                           end
-                           msg = msg..spack('>I',0)
-                           local len = #msg
-                           local pos = 1
-                           ev.IO.new(
-                              function(loop,write_io)                                
-                                 while pos < len do
-                                    local err                                    
-                                    pos,err = client:send(msg,pos)
-                                    if not pos then
-                                       if err == 'timeout' then
-                                          return
-                                       elseif err == 'closed' then
-                                          write_io:stop(loop)
-                                          client:shutdown()
-                                          client:close()
-                                          on_close()
-                                          return
-                                       end
-                                    end
-                                 end
-                                 write_io:stop(loop)
-                              end,
-                              client:getfd(),
-                              ev.WRITE
-                           ):start(loop)
-                        end,
-                     on_close = 
-                        function(_,f)
-                           on_close = f
-                        end,
-                     on_message = 
-                        function(_,f)
-                           on_message = f
-                        end
-                  }
-               )
+      sock:setoption('tcp-nodelay',true)
+      local on_message = function() end
+      local on_close = function() end
+      local wrapped = {}
+      wrapped.send_msg =                              
+         function(_,parts)
+            local msg = ''
+            for i,part in ipairs(parts) do
+               msg = msg..spack('>I',#part)..part
             end
+            msg = msg..spack('>I',0)
+            local len = #msg
+            local pos = 1
+--            print('SENDING',#msg,msg:byte(1,#msg))
+            ev.IO.new(
+               function(loop,write_io)                                
+                  while pos < len do
+                     local err                                    
+                     pos,err = sock:send(msg,pos)
+                     if not pos then
+                        if err == 'timeout' then
+                           return
+                        elseif err == 'closed' then
+                           write_io:stop(loop)
+                           sock:shutdown()
+                           sock:close()
+                           return
+                        end
+                     end
+                  end
+                  write_io:stop(loop)
+               end,
+               sock:getfd(),
+               ev.WRITE
+            ):start(ev.Loop.default)
+         end
+      wrapped.on_close = 
+         function(_,f)
+            on_close = f
+         end
+      wrapped.on_message = 
+         function(_,f)
+            on_message = f
+         end     
+      wrapped.read_io = 
+         function()
             local parts = {}
             local part
             local left
             local length
             local header
-            local close = 
-               function()
-                  client:shutdown()
-                  client:close()
-                  on_close()
-               end
---            local i = 0
-            ev.IO.new(
+            
+            return ev.IO.new(
                function(loop,read_io)
                   while true do
---                     print(i)
---                     i = i +1
                      if not header or #header < 4 then
                         local header_left = 4                              
                         if header then
@@ -120,9 +102,9 @@ local listener =
                         else
                            header = ''
                         end                              
-                        local header_more,err,sub = client:receive(header_left)
+                        local header_more,err,sub = sock:receive(header_left)
                         if err then
---                           print('err',err)
+                           --                           print('err',err)
                            if err == 'timeout' then
                               if header then
                                  header = header..sub
@@ -131,18 +113,20 @@ local listener =
                               end
                               return                                    
                            else -- if err == 'closed' then
-                              close()
                               read_io:stop(loop)
+                              sock:shutdown()
+                              sock:close()
+                              on_close(wrapped)
                               return
                            end
                         end
                         header = header..header_more
                         _,left = header:unpack('>I')
---                        length = left
---                        print(left)
+                        --                        length = left
+                        --                        print(left)
                         if left == 0 then
---                           print('on message')
-                           on_message(parts)
+                           --                           print('on message')
+                           on_message(parts,wrapped)
                            parts = {}
                            part = nil
                            left = nil
@@ -150,18 +134,18 @@ local listener =
                            header = nil
                         else
                            length = left
---                           print('length',length)
+                           --                           print('length',length)
                         end
                      end
                      if length then
- --                       print('aaa')
+                        --                       print('aaa')
                         if not part or #part ~= length then
-  --                      print('xxx')
+                           --                      print('xxx')
                            local last = part
                            local err,sub
-                           part,err,sub = client:receive(left)                           
+                           part,err,sub = sock:receive(left)                           
                            if err then
---                              print('err 2',err)
+                              --                              print('err 2',err)
                               if err == 'timeout' then
                                  if part then
                                     part = part..sub
@@ -171,8 +155,10 @@ local listener =
                                  left = length - #part
                                  return
                               else -- if err == 'closed' then
-                                 close()
                                  read_io:stop(loop)
+                                 sock:shutdown()
+                                 sock:close()
+                                 on_close(wrapped)                                
                                  return
                               end
                            end
@@ -180,31 +166,47 @@ local listener =
                               part = last..part
                            end
                            if #part == length then
---                              print('on complete')
+                              --                              print('on complete')
                               tinsert(parts,part)
                               part = nil
                               left = nil
                               length = nil
                               header = nil
-                              --return 
                            end
                         end
-                     end
-                  end
+                     end -- if length
+                  end -- while
                end,
-               client:getfd(),
-               ev.READ
-            ):start(loop)
+         sock:getfd(),
+         ev.READ)
+         end
+      return wrapped
+   end
+
+
+
+local listener = 
+   function(port,on_connect)
+      local sock = assert(socket.bind('*',port))
+      sock:settimeout(0)
+      local listen_io = ev.IO.new(
+         function(loop,accept_io)
+            local client = assert(sock:accept())         
+            local wrapped = wrap(client)
+            wrapped:read_io():start(loop)
+            on_connect(wrapped)
          end,
          sock:getfd(),
-         ev.READ
-      )
+         ev.READ)
       return {
          io = listen_io
       }
    end
 
 return {
-   listener = listener
+   listener = listener,
+   wrap = wrap,
+   send_msg = send_msg,
+   receive_msg = receive_msg
 }
 
