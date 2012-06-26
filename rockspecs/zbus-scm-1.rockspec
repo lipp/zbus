@@ -11,7 +11,6 @@ description = {
 dependencies = {
    'lua >= 5.1',
    'lua-ev',
-   'lua-zmq >= 1.0',
    'lua-cjson >= 1.0'
 }
 build = {
@@ -23,6 +22,7 @@ build = {
          ["zbus.util"] = 'zbus/util.lua',  
          ["zbus.member"] = 'zbus/member.lua',  
          ["zbus.broker"] = 'zbus/broker.lua',  
+         ["zbus.socket"] = 'zbus/socket.lua',  
          ["zbus.config"] = 'zbus/config.lua',  
       },
       bin = {

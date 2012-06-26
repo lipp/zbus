@@ -26,15 +26,15 @@ To achieve this, you have to become a zbus.member. zbus members can:
 
 ## Requirements
 
-zbusd heavily relies on [lua-zmq](https://github.com/Neopallium/lua-zmq) and [lua-ev](https://github.com/brimworks/lua-ev). The optional JSON message wrapper (zbus/json.lua) requires [lua-cjson](http://www.kyne.com.au/~mark/software/lua-cjson.php). They are all available via luarocks and will be installed automatically with the zbus rock.
+zbusd heavily relies on luasocket and [lua-ev](https://github.com/brimworks/lua-ev). The optional JSON message wrapper (zbus/json.lua) requires [lua-cjson](http://www.kyne.com.au/~mark/software/lua-cjson.php). They are all available via luarocks and will be installed automatically with the zbus rock.
 
 ## Other Languages like C,Python,...
 
-Even if the broker (zbusd.lua) and the modules provided are written in Lua, zbus members could be written in **any language** with support for zeromq (and multi-part messages), as [lua-zmq](https://github.com/Neopallium/lua-zmq) does.
+Even if the broker (zbusd.lua) and the modules provided are written in Lua, zbus members could be written in **any language** with support for TCP/IP.
 
 ## Protocol
 
-zbus defines a simple protocol based on zeromq **multi-part messages**.This allows zbusd.lua to effectively recognize (or simply forward):
+zbus defines a simple protocol based on **multi-part messages**.This allows zbusd.lua to effectively recognize (or simply forward):
 
 -    method-urls
 -    method-arguments
@@ -213,13 +213,15 @@ The broker traverses all registered notification expressions and forwards the co
 The broker traverses all registered method-call expressions and **assures that just one expression matches**. Otherwise the method-call url is ambigouos and an error message is returned In case of a unique match, the complete message is forwarded via the matched route. The response will be routed to the message queue which made the request.
 
 ### Registration
-zbus members must register routes to subscribe to notifications or to provide services (methods). A route consists of an expression (a [Lua pattern](http://www.lua.org/pil/20.2.html)) and a zeromq-socket-url (aka [zeromq-endpoint](http://api.zeromq.org/2-1:zmq-connect)). The broker provides a so called **registration socket (default url: "tcp://*:33329", type ZMQ_REP)**, which accepts registration requests. These are the registration calls:
+zbus members must register routes to subscribe to notifications or to
+provide services (methods). A route consists of an expression (a [Lua
+pattern](http://www.lua.org/pil/20.2.html)) and a an IP address + port. The broker provides a so called **registration socket (default port: 33329)**, which accepts registration requests. These are the registration calls:
 
 - **replier_open** registers a new (method) replier socket. The broker
- binds a zeromq dealer (ZMQ_XREQ) to the url returned.
+ binds an acceptor/listener to the url returned.
  + return: a url to connect to
 - **replier_close** unregisters a previously opened (method) replier
- socket and closes the zeromq dealer.
+ socket and closes it.
  + params: url
 - **replier_add** adds an expression to the specified replier
  socket. Tells the broker to forward incoming _method-call-request_ to
@@ -230,8 +232,8 @@ zbus members must register routes to subscribe to notifications or to provide se
  socket. Stops the broker from forwarding incoming _method-call-request_
  to the specified url.
  + params: url,expression
-- **listen_open** registers a new (subscribe) listen socket. The
- broker binds a socket of type ZMQ_PUSH to the url returned. 
+- **listen_open** registers a new listen socket acceptor/listener. The
+ broker binds a socket to the url returned. 
  + return: a url to connect to
 - **listen_close** unregisters a previously opened (subscribe) listen socket
  + params: url
@@ -259,7 +261,7 @@ The format of the message data (argument/result/error/data) **can be of any kind
 (When using zbus/json.lua as zbus.member configuration, all stuff is converted to and from JSON.)
 
 ### registration-request
-A registration-request is a (zeromq) multi-part message with the following layout:
+A registration-request is a multi-part message with the following layout:
 
 <table border="1">   
        <tr>
@@ -269,7 +271,7 @@ A registration-request is a (zeromq) multi-part message with the following layou
                 <td>1</td><td>Method</td><td>replier_add</td>
         </tr>
         <tr>
-                <td>2</td><td>arg 1</td><td>tcp://127.0.0.1:8765</td>	
+                <td>2</td><td>arg 1</td><td>8765</td>	
         </tr>
         <tr>
                 <td>3</td><td>arg 2</td><td>^echo$</td>	
@@ -284,7 +286,7 @@ A registration-request is a (zeromq) multi-part message with the following layou
 The method part (first part) is required, all arguments to registration calls are further parts in the multi-part message.
 
 ### registration-response
-A registration-response is a (zeromq) message. 
+A registration-response is a multi-part message. 
 
 **In case of error, it has two parts**:
 <table border="1">      
@@ -305,13 +307,13 @@ A registration-response is a (zeromq) message.
 	<td>Message Part</td><td>Meaning</td><td>Example</td>
        </tr>                     
         <tr>		
-                <td>1</td><td>Result</td><td>tcp://127.0.0.1:8765</td>
+                <td>1</td><td>Result</td><td>8765</td>
         </tr>
 </table>
 
 
 ### method-call-request
-The method-call-request is sent by a zbus member to issue a method call. The broker will forward the method-call-request as method-call-request-forward message. The method-call-request message must always be a (zeromq) **two-part message**. The first argument is the method-url to call, the second is the argument:
+The method-call-request is sent by a zbus member to issue a method call. The broker will forward the method-call-request as method-call-request-forward message. The method-call-request message must always be a **two-part message**. The first argument is the method-url to call, the second is the argument:
 <table border="1">      
        <tr>
 	<td>Message Part</td><td>Meaning</td><td>Example</td>
@@ -325,7 +327,9 @@ The method-call-request is sent by a zbus member to issue a method call. The bro
 </table>
 
 ### method-call-request-forward
-The method-call-request-forward message is forwarded by the broker to the member who registered to handle it (based on the url). The message must always be a (zeromq) **two-part message**. The first argument is the method-url to call, the second is the argument:
+The method-call-request-forward message is forwarded by the broker to
+the member who registered to handle it (based on the url). The message
+must always be a **two-part message**. The first argument is the method-url to call, the second is the argument:
 <table border="1">      
        <tr>
 	<td>Message Part</td><td>Meaning</td><td>Example</td>
@@ -419,7 +423,7 @@ must be at least one Topic/Data tuple. The notification message looks like:
 
 ### notification-forward
 listeners will receive notification-forward messages on the registered
-zmq socket. There is one Expression/Topic/Data tuple for each
+socket. There is one Expression/Topic/Data tuple for each
 forwarded notification. There must be at least one
 Expression/Topic/Data tuple inside the multipart message, but there
 may be more. The notification message looks like:
