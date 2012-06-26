@@ -5,6 +5,7 @@ require'pack'
 local print = print
 local pairs = pairs
 local tinsert = table.insert
+local tconcat = table.concat
 local ipairs = ipairs
 local assert = assert
 local spack = string.pack
@@ -23,6 +24,7 @@ local receive_message =
          local part = self:receive(bytes)
          tinsert(parts,part)
       end
+--      print('RECV',#parts,tconcat(parts))
       return parts
    end
 
@@ -30,7 +32,9 @@ local send_message =
    function(self,parts)
       local message = ''
       for i,part in ipairs(parts) do
-         message = message..spack('>I',#part)..part
+         local len = #part
+         assert(len>0)
+         message = message..spack('>I',len)..part
       end
       message = message..spack('>I',0)      
       self:send(message)
@@ -45,12 +49,15 @@ local wrap =
       local wrapped = {}
       wrapped.send_message =                              
          function(_,parts)
+--            assert(#parts>0)
+--            print('SND',#parts,tconcat(parts))
             local message = ''
             for i,part in ipairs(parts) do
                message = message..spack('>I',#part)..part
             end
             message = message..spack('>I',0)
             local len = #message
+            assert(len>0)
             local pos = 1
             ev.IO.new(
                function(loop,write_io)                                
@@ -82,6 +89,12 @@ local wrap =
          function(_,f)
             on_message = f
          end     
+      wrapped.close =
+         function()
+            sock:shutdown()
+            sock:close()
+--            sock = nil
+         end
       wrapped.read_io = 
          function()
             local parts = {}
@@ -115,6 +128,7 @@ local wrap =
                         if #header == 4 then
                            _,left = header:unpack('>I')
                            if left == 0 then
+--                              print('on message',#parts,tconcat(parts))
                               on_message(parts,wrapped)
                               parts = {}
                               part = nil

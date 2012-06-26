@@ -331,7 +331,6 @@ new =
                      end
                   end
                   self:close()
-                  zcontext:term()
                end      
             local quit_and_exit = 
                function()

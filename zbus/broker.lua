@@ -26,16 +26,16 @@ local port_pool =
       local self = {}
       self.free = {}
       self.used = {}
-      for port=port_min,port_max do       
-         self.free[tostring(port)] = true
+      local i = 0
+      for port=port_min,port_max do                
+         self.free[i] = tostring(port)
+         i = i + 1
       end
 
       self.get = 
          function(self)
-            -- get first table element
-            local port = pairs(self.free)(self.free)
+            local port = tremove(self.free,1)
             if port then
-               self.free[port] = nil
                self.used[port] = true
                return port
             else
@@ -47,7 +47,7 @@ local port_pool =
          function(self,port)	 
             if self.used[port] then
                self.used[port] = nil
-               self.free[port] = true
+               tinsert(self.free,port)
                return true
             else
                error('invalid port')
@@ -107,7 +107,7 @@ new =
                      responder:on_close(
                         function()
 --                           self.repliers[port] = nil
-                           self.replier_close(port)
+                           self.registry_calls.replier_close(port)
                         end)
                   end)
                replier.listener.io:start(loop)
@@ -125,21 +125,8 @@ new =
                end 
                local replier = self.repliers[replier_port]
                if replier then            
-                  replier.io:stop(loop)
-                  while true do 
-                     local events = getopt(replier.dealer,zEVENTS)
-                     if events ~= zIN and events ~= zINOUT then
-                        break
-                     end
-                     local more
-                     repeat
-                        local part = recv(replier.dealer,zNOBLOCK)
-                        more = getopt(replier.dealer,zRCVMORE) > 0
-                        send(self.method_socket,part,more and zSNDMORE or 0)
-                     until not more
-                  end
-                  replier.dealer:close()
-                  zutil.remove_read_io(replier.dealer)
+                  replier.listener.io:stop(loop)
+                  replier.listener.responder:close()
                   self.repliers[replier_port] = nil
                   self.port_pool:release(replier_port)
                end
@@ -245,7 +232,7 @@ new =
                   if ok then
                      resp[1] = ret
                   else
-                     resp[1] = ''
+                     resp[1] = 'x' --placeholder, MUST NOT be empty
                      resp[2] = ret
                   end
                   log('REG',cmd)
