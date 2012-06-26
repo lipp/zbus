@@ -16,7 +16,9 @@ module('zbus.socket')
 
 local wrap_sync = 
    function(sock)
-      assert(sock)
+      if not sock then
+         error('can not wrap nil socket')
+      end
       return {
          receive_message = 
             function(_)
@@ -61,6 +63,9 @@ local wrap_sync =
 
 local wrap_async = 
    function(sock)
+      if not sock then
+         error('can not wrap nil socket')
+      end
       sock:settimeout(0)
       sock:setoption('tcp-nodelay',true)
       local on_message = function() end
