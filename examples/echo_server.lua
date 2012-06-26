@@ -1,5 +1,7 @@
 local zm = require'zbus.member'
-local member = zm.new()
+local member = zm.new{
+   log = print
+}
 -- register a function, which will be called, when a zbus-message's url matches expression
 member:replier_add(
 	 -- the expression to match	
