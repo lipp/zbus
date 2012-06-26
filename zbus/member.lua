@@ -38,13 +38,17 @@ new =
          function(self,args)
             log('broker_call',args[1])
             if not self.registry then
-               self.registry = wrap_sync(socket.connect(config.broker.ip,config.broker.registry_port))
+               local sock = socket.connect(config.broker.ip,config.broker.registry_port)
+               if not sock then
+                  error('could not connect to '..config.broker.ip..':'..config.broker.registry_port,2)
+               end
+               self.registry = wrap_sync(sock)
             end
             tinsert(args,config.name)
             self.registry:send_message(args)
             local resp = self.registry:receive_message()
             if #resp > 1 then
-               error('broker call "'..tconcat(args,',')..'" failed:'..resp[2])
+               error('broker call "'..tconcat(args,',')..'" failed:'..resp[2],2)
             else
                return resp[1]
             end
@@ -228,13 +232,22 @@ new =
             return self.listen:read_io()
          end
 
+      local rpc_sock = 
+         function()
+            if not self.rpc_sock then
+               local sock = socket.connect(config.broker.ip,config.broker.rpc_port)
+               if not sock then
+                  error('could not connect to '..config.broker.ip..':'..config.broker.rpc_port,2)
+               end
+               self.rpc_sock = wrap_sync(sock)               
+            end
+            return self.rpc_sock
+         end
+
       self.call = 
          function(self,method,...)
             assert(method)
-            if not self.rpc_sock then
-               self.rpc_sock = wrap_sync(socket.connect(config.broker.ip,config.broker.rpc_port))
-            end
-            local sock = self.rpc_sock
+            local sock = rpc_sock()
             sock:send_message{
                method,
                serialize_args(...)
@@ -256,10 +269,7 @@ new =
       self.call_async = 
          function(self,method,on_success,on_error,...)
             assert(method)
-            if not self.rpc_sock then
-               self.rpc_sock = wrap_sync(socket.connect(config.broker.ip,config.broker.rpc_port))               
-            end
-            local sock = self.rpc_sock
+            local sock = rpc_sock()
             ev.IO.new(
                function(loop,io)
                   io:stop(loop)
