@@ -9,6 +9,7 @@ local tconcat = table.concat
 local ipairs = ipairs
 local assert = assert
 local spack = string.pack
+local error = error
 local log = print
 
 module('zbus.socket')
@@ -21,7 +22,11 @@ local wrap_sync =
             function(_)
                local parts = {}
                while true do
-                  local _,bytes = sock:receive(4):unpack('>I')
+                  local header = sock:receive(4)
+                  if not header then
+                     error('could not read header')
+                  end
+                  local _,bytes = header:unpack('>I')
                   if bytes == 0 then 
                      break
                   end
@@ -41,6 +46,10 @@ local wrap_sync =
                end
                message = message..spack('>I',0)      
                sock:send(message)
+            end,
+         getfd = 
+            function()
+               return sock:getfd()
             end,
          close = 
             function()
