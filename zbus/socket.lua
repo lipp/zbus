@@ -8,6 +8,7 @@ local tinsert = table.insert
 local ipairs = ipairs
 local assert = assert
 local spack = string.pack
+local log = print
 
 module('zbus.socket')
 
@@ -88,6 +89,7 @@ local wrap =
             local left
             local length
             local header
+            local _
             
             return ev.IO.new(
                function(loop,read_io)
@@ -99,12 +101,15 @@ local wrap =
                            if err == 'timeout' then
                               header = sub
                               return                                    
-                           else -- if err == 'closed' then
+                           else
+                              if err ~= 'closed' then
+                                 log('ERROR','unknown socket error',err)
+                              end
                               read_io:stop(loop)
                               sock:shutdown()
                               sock:close()
                               on_close(wrapped)
-                              return
+                              return                           
                            end
                         end
                         if #header == 4 then
@@ -130,7 +135,10 @@ local wrap =
                                  part = sub
                                  left = length - #part
                                  return
-                              else -- if err == 'closed' then
+                              else 
+                                 if err ~= 'closed' then
+                                    log('ERROR','unknown socket error',err)
+                                 end
                                  read_io:stop(loop)
                                  sock:shutdown()
                                  sock:close()
