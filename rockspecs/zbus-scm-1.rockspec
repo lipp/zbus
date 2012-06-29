@@ -11,6 +11,7 @@ description = {
 dependencies = {
    'lua >= 5.1',
    'lua-ev',
+   'lpack',
    'lua-cjson >= 1.0'
 }
 build = {
