@@ -179,7 +179,13 @@ new =
             self:notify_more(topic,false,...)
          end
 
-      local notifications = {}
+      local notifications = {}      
+      self.flush_notifications = 
+         function(self)
+         self.notify_sock:send_message(notifications)
+         notifications = {}
+         end
+
       self.notify_more = 
          function(self,topic,more,...)
             if not self.notify_sock then               
@@ -192,6 +198,8 @@ new =
                notifications = {}
             end
          end
+
+         
       
       
       self.close = 
@@ -269,6 +277,8 @@ new =
          function(self,method,on_success,on_error,...)
             assert(method)
             local sock = rpc_sock()
+            local fd = sock:getfd()
+            assert(fd > -1)
             ev.IO.new(
                function(loop,io)
                   io:stop(loop)
@@ -284,7 +294,7 @@ new =
                   end
                   on_success(unserialize_result(resp[1]))
                end,
-               sock:getfd(),
+               fd,
                ev.READ):start(self.ev_loop)
             
             sock:send_message{
@@ -315,6 +325,7 @@ new =
                         io:stop(loop)
                      end
                   end
+                  self:unloop()
                   self:close()
                end      
             local quit_and_exit = 
@@ -322,9 +333,9 @@ new =
                   quit()
                   os.exit()
                end
-            ev.Signal.new(quit_and_exit,SIGHUP):start(loop)
-            ev.Signal.new(quit_and_exit,SIGINT):start(loop)
-            ev.Signal.new(quit_and_exit,SIGKILL):start(loop)
+            ev.Signal.new(quit,SIGHUP):start(loop)
+            ev.Signal.new(quit,SIGINT):start(loop)
+            ev.Signal.new(quit,SIGKILL):start(loop)
             ev.Signal.new(quit_and_exit,SIGTERM):start(loop)  
             if listen_io then 
             --    log('LISTEN');
@@ -338,6 +349,9 @@ new =
                for _,io in ipairs(options.ios) do
                   io:start(loop)
                end
+            end
+            if options.daemonize then
+               options.daemonize()
             end
             loop:loop()
             quit()

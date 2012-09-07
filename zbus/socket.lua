@@ -24,15 +24,16 @@ local wrap_sync =
             function(_)
                local parts = {}
                while true do
-                  local header = sock:receive(4)
-                  if not header then
-                     error('could not read header')
+                  local header,err = sock:receive(4)
+                  if err then
+                     error('could not read header:'..err)
                   end
                   local _,bytes = header:unpack('>I')
                   if bytes == 0 then 
                      break
                   end
                   local part = sock:receive(bytes)
+                  assert(part)
                   tinsert(parts,part)
                end
                --      print('RECV',#parts,tconcat(parts))
@@ -83,6 +84,8 @@ local wrap_async =
             local len = #message
             assert(len>0)
             local pos = 1
+            local fd = sock:getfd()
+            assert(fd > -1)
             ev.IO.new(
                function(loop,write_io)                                
                   while pos < len do
@@ -101,7 +104,7 @@ local wrap_async =
                   end
                   write_io:stop(loop)
                end,
-               sock:getfd(),
+               fd,
                ev.WRITE
             ):start(ev.Loop.default)
          end
@@ -127,7 +130,8 @@ local wrap_async =
             local length
             local header
             local _
-            
+            local fd = sock:getfd()
+            assert(fd > -1)
             return ev.IO.new(
                function(loop,read_io)
                   while true do
@@ -195,7 +199,7 @@ local wrap_async =
                      end -- if length
                   end -- while
                end,
-         sock:getfd(),
+         fd,
          ev.READ)
          end
       return wrapped
@@ -207,6 +211,8 @@ local listener =
    function(port,on_connect)
       local sock = assert(socket.bind('*',port))
       sock:settimeout(0)
+      local fd = sock:getfd()
+      assert(fd > -1)
       local listen_io = ev.IO.new(
          function(loop,accept_io)
             local client = assert(sock:accept())         
@@ -214,7 +220,7 @@ local listener =
             wrapped:read_io():start(loop)
             on_connect(wrapped)
          end,
-         sock:getfd(),
+         fd,
          ev.READ)
       return {
          io = listen_io

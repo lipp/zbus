@@ -75,20 +75,20 @@ new =
       self.registry_calls = {
          replier_open = 
             function()
-               log('replier_open')
+--               log('replier_open')
                local replier = {}
                local port = self.port_pool:get()
                replier.exps = {}
                replier.acceptor = acceptor(
                   port,
                   function(responder)
-                     log('replier really open')
+--                     log('replier really open')
                      replier.acceptor.io:stop(loop)
                      replier.acceptor = nil
                      self.repliers[port].responder = responder
                      responder:on_message(
                         function(response)
-                     --      log(tostring(sock)..'<-RPC',tconcat(response))
+--                           log(tostring(sock)..'<-RPC',tconcat(response))
                            local rid = response[1]
                            local client = todo[rid]
                            if client then
@@ -97,7 +97,7 @@ new =
                               client:send_message(response)
                               --                     listener.responder:on_message(on_spurious_message)
                            else
-                              log('SPURIOUS MESSAGE',tconcat(message))
+                              log('CRITICAL SPURIOUS MESSAGE',tconcat(response))
                            end
                         end)
 
@@ -137,7 +137,7 @@ new =
 
          replier_add = 
             function(replier_port,exp)
-               log('replier_add',replier_port,exp)
+--               log('replier_add',replier_port,exp)
                if not replier_port or not exp then
                   error('argument error')
                end
@@ -172,13 +172,13 @@ new =
             function()
                local listener = {}
                local port = self.port_pool:get()               
-               log('listen','on',port)
+--               log('listen','on',port)
                listener.acceptor = acceptor(
                   port,
                   function(client)
                      listener.acceptor.io:stop(loop)
                      listener.acceptor = nil
-                     log('really listening',port)
+--                     log('really listening',port)
                      listener.push = client                     
                   end)
                listener.exps = {}
@@ -239,7 +239,7 @@ new =
             client:on_message(
                function(message)                  
                   local cmd = message[1]
-                  log('REG=>',cmd)
+--                  log('REG=>',unpack(message))
                   tremove(message,1)
                   local args = message
                   local ok,ret = pcall(self.registry_calls[cmd],unpack(args))        
@@ -250,7 +250,7 @@ new =
                      resp[1] = 'x' --placeholder, MUST NOT be empty
                      resp[2] = ret
                   end
-                  log('REG<=',cmd,tconcat(resp,' '))
+--                  log('REG<=',cmd,tconcat(resp,' '))
                   client:send_message(resp)
                end)                
          end)
@@ -301,7 +301,7 @@ new =
                         if smatch(method,exp) then
   --                         log('rpc','matched',method,exp,url)
                            if responder then
-                              log('rpc','method ambiguous',method,exp,url)
+--                              log('rpc','method ambiguous',method,exp,url)
                               err = 'method ambiguous: '..method
                               err_id = 'ERR_AMBIGUOUS'
                            else
@@ -316,7 +316,7 @@ new =
                      err_id = 'ERR_NOMATCH'
                   end
                   if err then
-                     log('ERROR',err)
+--                     log('ERROR',err)
                      client:send_message{
                         'x', --placeholder, MUST NOT be empty
                         err_id,
@@ -337,10 +337,13 @@ new =
          end)
                   
       self.loop = 
-         function(self)
+         function(self,options)
             self.method_socket.io:start(loop)
             self.notification_socket.io:start(loop)
             self.registry_socket.io:start(loop)
+            if options.daemonize then
+               options.daemonize()
+            end
             loop:loop()
          end
       
